@@ -21,7 +21,6 @@ logger = logging.getLogger(__name__)
 
 TEXT_INPUT = 1
 
-# ---------- обработчики ----------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     level = get_user_level(user_id)
