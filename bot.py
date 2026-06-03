@@ -222,22 +222,8 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     init_db()
-    proxy_url = os.environ.get("PROXY_URL")
-    if proxy_url:
-        request = HTTPXRequest(
-            proxy=proxy_url,
-            connect_timeout=30,
-            read_timeout=30,
-            write_timeout=30
-        )
-    else:
-        request = HTTPXRequest(
-            connect_timeout=30,
-            read_timeout=30,
-            write_timeout=30
-        )
+    request = HTTPXRequest(connect_timeout=30, read_timeout=30, write_timeout=30)
     app = Application.builder().token(TOKEN).request(request).build()
-
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("add_text", add_text_start)],
         states={TEXT_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_text_process)]},
