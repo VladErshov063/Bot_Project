@@ -8,11 +8,30 @@ from telegram.ext import (
 from config import TOKEN
 from db import (
     init_db, get_user_level, set_user_level, add_known_word, add_to_queue,
-    get_next_new_word, get_words_for_review, update_review, get_stats
+    get_next_new_word, get_words_for_review, update_review, get_stats, is_word_known
 )
 from hsk_loader import load_hsk_dicts
 from tokenizer import segment_chinese
 from telegram.request import HTTPXRequest
+
+def extract_sentence(text: str, word: str) -> str:
+    """Извлекает предложение, содержащее слово, или возвращает первые 100 символов текста."""
+    delimiters = ['。', '！', '？', '；', '!', '?', ';']
+    sentences = []
+    current = ''
+    for ch in text:
+        current += ch
+        if ch in delimiters:
+            sentences.append(current.strip())
+            current = ''
+    if current.strip():
+        sentences.append(current.strip())
+    
+    for sent in sentences:
+        if word in sent:
+            return sent[:150]
+    
+    return text[:100]
 
 HSK_DICT = load_hsk_dicts()
 
@@ -57,15 +76,18 @@ async def add_text_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_level = get_user_level(user_id)
     new_found = 0
     for w in words:
+        if is_word_known(user_id, w):
+            continue
         info = HSK_DICT.get(w)
+        context_sent = extract_sentence(text, w)
         if info:
             pinyin, translation, word_level = info
             if word_level > user_level:
-                add_to_queue(user_id, w, pinyin, translation, word_level, context=text)
-                new_found += 1
+                if add_to_queue(user_id, w, pinyin, translation, word_level, context=context_sent):
+                    new_found += 1
         else:
-            add_to_queue(user_id, w, "", "", 0, context=text)
-            new_found += 1
+            if add_to_queue(user_id, w, "", "", 0, context=context_sent):
+                new_found += 1
 
     known_count, queue_count = get_stats(user_id)
     await update.message.reply_text(
@@ -90,7 +112,7 @@ async def learn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"*Пиньинь:* {word_data['pinyin']}\n"
         f"*Перевод:* {word_data['translation']}\n"
         f"*HSK уровень:* {word_data['hsk_level']}\n"
-        f"*Контекст:* {word_data['context'][:100]}..."
+        f"*Контекст:* {word_data['context']}..."
     )
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ Знаю", callback_data=f"learn_know_{word_data['word']}")],
@@ -133,7 +155,7 @@ async def learn_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"*Пиньинь:* {next_word['pinyin']}\n"
             f"*Перевод:* {next_word['translation']}\n"
             f"*HSK уровень:* {next_word['hsk_level']}\n"
-            f"*Контекст:* {next_word['context'][:100]}..."
+            f"*Контекст:* {next_word['context']}..."
         )
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("✅ Знаю", callback_data=f"learn_know_{next_word['word']}")],
@@ -166,7 +188,7 @@ async def show_review_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"*Пиньинь:* {w['pinyin']}\n"
         f"*Перевод:* {w['translation']}\n"
         f"*HSK:* {w['hsk_level']}\n"
-        f"*Контекст:* {w['context'][:100] if w['context'] else '—'}"
+        f"*Контекст:* {w['context'] if w['context'] else '—'}"
     )
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ Знаю", callback_data="review_know"),
@@ -219,6 +241,21 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Действие отменено.")
     return ConversationHandler.END
 
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (
+        "📋 *Доступные команды:*\n\n"
+        "/start - Начать работу\n"
+        "/level <1-6> - Установить свой уровень HSK\n"
+        "/add_text - Отправить китайский текст для выделения новых слов\n"
+        "/learn - Изучать следующее новое слово из очереди\n"
+        "/review - Повторять выученные слова (интервальные повторения)\n"
+        "/stats - Показать статистику\n"
+        "/cancel - Отменить текущий диалог\n"
+        "/help - Показать это сообщение\n\n"
+        "💡 *Совет:* Установите правильный уровень HSK (/level), чтобы бот правильно определял знакомые и новые слова."
+    )
+    await update.message.reply_text(text, parse_mode="Markdown")
+
 def main():
     init_db()
     request = HTTPXRequest(connect_timeout=30, read_timeout=30, write_timeout=30)
@@ -238,6 +275,7 @@ def main():
     app.add_handler(CallbackQueryHandler(review_callback, pattern="^review_"))
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("cancel", cancel))
+    app.add_handler(CommandHandler("help", help_command))
 
     logger.info("Бот запущен")
     app.run_polling()

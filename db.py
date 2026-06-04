@@ -1,9 +1,18 @@
 import sqlite3
+import os
 from datetime import datetime, timedelta
 
-DB_PATH = "user_data.db"
+def get_db_path():
+    if os.path.exists("/app/data"):
+        return "/app/data/user_data.db"
+    return "user_data.db"
+
+DB_PATH = get_db_path()
 
 def init_db():
+    db_dir = os.path.dirname(DB_PATH)
+    if db_dir and not os.path.exists(db_dir):
+        os.makedirs(db_dir)
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("""
@@ -73,23 +82,24 @@ def add_known_word(user_id: int, word: str, pinyin: str, translation: str, hsk_l
     conn.commit()
     conn.close()
 
-def add_to_queue(user_id: int, word: str, pinyin: str, translation: str, hsk_level: int, context: str = ""):
+def add_to_queue(user_id: int, word: str, pinyin: str, translation: str, hsk_level: int, context: str = "") -> bool:
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("SELECT 1 FROM known_words WHERE user_id = ? AND word = ?", (user_id, word))
     if c.fetchone():
         conn.close()
-        return
+        return False
     c.execute("SELECT 1 FROM words_queue WHERE user_id = ? AND word = ?", (user_id, word))
     if c.fetchone():
         conn.close()
-        return
+        return False
     c.execute("""
         INSERT INTO words_queue (user_id, word, pinyin, translation, hsk_level, context)
         VALUES (?, ?, ?, ?, ?, ?)
     """, (user_id, word, pinyin, translation, hsk_level, context))
     conn.commit()
     conn.close()
+    return True
 
 def get_next_new_word(user_id: int) -> dict | None:
     conn = sqlite3.connect(DB_PATH)
@@ -157,3 +167,11 @@ def get_stats(user_id: int) -> tuple[int, int]:
     queue_count = c.fetchone()[0]
     conn.close()
     return known_count, queue_count
+
+def is_word_known(user_id: int, word: str) -> bool:
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT 1 FROM known_words WHERE user_id = ? AND word = ?", (user_id, word))
+    found = c.fetchone() is not None
+    conn.close()
+    return found
