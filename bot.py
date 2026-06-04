@@ -1,4 +1,5 @@
 import logging
+import random
 import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -8,7 +9,7 @@ from telegram.ext import (
 from config import TOKEN
 from db import (
     init_db, get_user_level, set_user_level, add_known_word, add_to_queue,
-    get_next_new_word, get_words_for_review, update_review, get_stats, is_word_known
+    get_next_new_word, get_words_for_review, update_review, get_stats, is_word_known, get_all_known_words
 )
 from hsk_loader import load_hsk_dicts
 from tokenizer import segment_chinese
@@ -39,6 +40,116 @@ logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 TEXT_INPUT = 1
+
+GAMES = {
+    "translate": "📝 Угадай перевод слова",
+    "pinyin": "🔊 Выбери правильный пиньинь"
+}
+
+async def game(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показывает список доступных игр для выбора."""
+    user_id = update.effective_user.id
+    words = get_all_known_words(user_id)
+    if len(words) < 4:
+        await update.message.reply_text("❌ Недостаточно изученных слов (нужно минимум 4) для игр. Изучите ещё несколько слов через /learn и /review.")
+        return
+    
+    keyboard = []
+    for game_id, game_name in GAMES.items():
+        keyboard.append([InlineKeyboardButton(game_name, callback_data=f"game_choose_{game_id}")])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        "🎮 *Выберите игру:*\n\nИгры помогут вам быстрее запомнить слова.",
+        parse_mode="Markdown",
+        reply_markup=reply_markup
+    )
+
+async def game_choose_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обрабатывает выбор игры из меню."""
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    game_id = data.replace("game_choose_", "")
+    
+    if game_id == "translate":
+        await start_translate_game(update, context)
+    else:
+        await query.edit_message_text("🚧 Эта игра ещё в разработке. Попробуйте другую.")
+
+async def start_translate_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Запускает игру: выбрать правильный перевод слова."""
+    if update.callback_query:
+        user_id = update.callback_query.from_user.id
+        message = update.callback_query.message
+    else:
+        user_id = update.effective_user.id
+        message = update.message
+    
+    words = get_all_known_words(user_id)
+    words = [w for w in words if w["translation"]]
+    if len(words) < 4:
+        await message.reply_text("❌ Недостаточно слов с переводом для игры (нужно минимум 4).")
+        return
+    
+    target = random.choice(words)
+    other_words = [w for w in words if w["word"] != target["word"]]
+    if len(other_words) < 3:
+        await message.reply_text("❌ Недостаточно вариантов для ответа.")
+        return
+    
+    options = random.sample(other_words, 3)
+    variants = [target["translation"]] + [opt["translation"] for opt in options]
+    random.shuffle(variants)
+    
+    context.user_data["translate_game"] = {
+        "word": target["word"],
+        "correct": target["translation"],
+        "variants": variants
+    }
+    
+    keyboard = [
+        [InlineKeyboardButton(variants[0], callback_data="game_translate_0"),
+         InlineKeyboardButton(variants[1], callback_data="game_translate_1")],
+        [InlineKeyboardButton(variants[2], callback_data="game_translate_2"),
+         InlineKeyboardButton(variants[3], callback_data="game_translate_3")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    text = f"🎮 *Игра: угадай перевод*\n\nСлово: `{target['word']}`\n\nКакой перевод правильный?"
+    
+    if update.callback_query:
+        await update.callback_query.edit_message_text(text, parse_mode="Markdown", reply_markup=reply_markup)
+    else:
+        await update.message.reply_text(text, parse_mode="Markdown", reply_markup=reply_markup)
+
+async def translate_game_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Проверяет ответ в игре 'Угадай перевод'."""
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    selected_index = int(data.split("_")[-1])
+    
+    game_state = context.user_data.get("translate_game")
+    if not game_state:
+        await query.edit_message_text("❌ Игра устарела. Начните новую командой /game.")
+        return
+    
+    correct = game_state["correct"]
+    word = game_state["word"]
+    selected = game_state["variants"][selected_index]
+    
+    if selected == correct:
+        await query.edit_message_text(
+            f"✅ *Правильно!*\n\n`{word}` — {correct}\n\nМожете сыграть ещё раз через /game.",
+            parse_mode="Markdown"
+        )
+    else:
+        await query.edit_message_text(
+            f"❌ *Неправильно.*\n\n`{word}` — {correct}\n\nПопробуйте ещё раз через /game.",
+            parse_mode="Markdown"
+        )
+    context.user_data.pop("translate_game", None)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -237,6 +348,22 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
+async def mydict(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    words = get_all_known_words(user_id)
+    if not words:
+        await update.message.reply_text("📭 У вас пока нет изученных слов. Добавьте слова через /learn.")
+        return
+    
+    text = "📖 *Ваш словарик:*\n\n"
+    for i, w in enumerate(words[:30], 1):
+        text += f"{i}. {w['word']} — {w['translation']}\n"
+    
+    if len(words) > 30:
+        text += f"\n... и ещё {len(words)-30} слов. Список слишком длинный, показана только часть."
+    
+    await update.message.reply_text(text, parse_mode="Markdown")
+
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Действие отменено.")
     return ConversationHandler.END
@@ -250,6 +377,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/learn - Изучать следующее новое слово из очереди\n"
         "/review - Повторять выученные слова (интервальные повторения)\n"
         "/stats - Показать статистику\n"
+        "/mydict - Показать все изученные слова с переводом\n"
+        "/game - Выбрать игру для повторения слов\n"
         "/cancel - Отменить текущий диалог\n"
         "/help - Показать это сообщение\n\n"
         "💡 *Совет:* Установите правильный уровень HSK (/level), чтобы бот правильно определял знакомые и новые слова."
@@ -274,6 +403,10 @@ def main():
     app.add_handler(CommandHandler("review", review))
     app.add_handler(CallbackQueryHandler(review_callback, pattern="^review_"))
     app.add_handler(CommandHandler("stats", stats))
+    app.add_handler(CommandHandler("mydict", mydict))
+    app.add_handler(CommandHandler("game", game))
+    app.add_handler(CallbackQueryHandler(game_choose_callback, pattern="^game_choose_"))
+    app.add_handler(CallbackQueryHandler(translate_game_callback, pattern="^game_translate_"))
     app.add_handler(CommandHandler("cancel", cancel))
     app.add_handler(CommandHandler("help", help_command))
 

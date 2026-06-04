@@ -175,3 +175,17 @@ def is_word_known(user_id: int, word: str) -> bool:
     found = c.fetchone() is not None
     conn.close()
     return found
+
+def get_all_known_words(user_id: int) -> list[dict]:
+    """Возвращает список всех изученных слов с переводом."""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("""
+        SELECT word, translation
+        FROM known_words
+        WHERE user_id = ? AND translation != ''
+        ORDER BY word
+    """, (user_id,))
+    rows = c.fetchall()
+    conn.close()
+    return [{"word": row[0], "translation": row[1]} for row in rows]
