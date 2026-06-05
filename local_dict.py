@@ -13,8 +13,6 @@ class ChineseDictionary:
         self._load()
 
     def _load(self):
-        print(f"Пытаюсь загрузить словарь из: {self.dict_path.absolute()}")
-        print(f"Файл существует: {self.dict_path.exists()}")
         if not self.dict_path.exists():
             logger.warning(f"Файл словаря не найден: {self.dict_path}")
             return
@@ -23,7 +21,7 @@ class ChineseDictionary:
                 for line in f:
                     if line.startswith("#"):
                         continue
-                    match = re.match(r"^(\S+)\s+\S+\s*\[(.*?)\]\s*/(.*)/", line)
+                    match = re.match(r"^(\S+)\s+(\S+)\s*\[(.*?)\]\s*/(.*)$", line)
                     if match:
                         word = match.group(1)
                         pinyin = match.group(2)
