@@ -19,7 +19,8 @@ class ChineseDictionary:
         try:
             with open(self.dict_path, "r", encoding="utf-8") as f:
                 for line in f:
-                    if line.startswith("#"):
+                    line = line.strip()
+                    if not line or line.startswith("#"):
                         continue
                     match = re.match(r"^(\S+)\s+(\S+)\s*\[(.*?)\]\s*/(.*)", line)
                     if match:
@@ -30,8 +31,6 @@ class ChineseDictionary:
                         self.entries[simplified] = (self._format_pinyin(pinyin), translation)
                         if simplified != traditional:
                             self.entries[traditional] = (self._format_pinyin(pinyin), translation)
-                        self.entries[word] = (self._format_pinyin(pinyin), translation)
-
             logger.info(f"Загружено {len(self.entries)} слов из локального словаря")
         except Exception as e:
             logger.error(f"Ошибка загрузки словаря: {e}")

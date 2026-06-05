@@ -274,6 +274,7 @@ async def learn_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             conn.close()
     else:
         await query.edit_message_text("Слово пропущено. Оно останется в очереди.")
+        print(f"[LEARN_CALLBACK] Пропускаем слово '{word}' для user {user_id}")
         bump_queue_word(user_id, word)
 
     next_word = get_next_new_word(user_id)
