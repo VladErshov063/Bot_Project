@@ -103,22 +103,6 @@ def add_to_queue(user_id: int, word: str, pinyin: str, translation: str, hsk_lev
     conn.close()
     return True
 
-def get_next_new_word(user_id: int) -> dict | None:
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("""
-        SELECT word, pinyin, translation, hsk_level, context
-        FROM words_queue
-        WHERE user_id = ?
-        ORDER BY added_at ASC
-        LIMIT 1
-    """, (user_id,))
-    row = c.fetchone()
-    conn.close()
-    if row:
-        return {"word": row[0], "pinyin": row[1], "translation": row[2], "hsk_level": row[3], "context": row[4]}
-    return None
-
 def get_words_for_review(user_id: int) -> list[dict]:
     today = datetime.now().date()
     conn = sqlite3.connect(DB_PATH)
@@ -196,10 +180,30 @@ def bump_queue_word(user_id: int, word: str):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     now_str = datetime.now().isoformat()
+    print(f"[BUMP] Обновляем слово '{word}' для {user_id} -> {now_str}")
     c.execute("UPDATE words_queue SET added_at = ? WHERE user_id = ? AND word = ?",
               (now_str, user_id, word))
+    print(f"[BUMP] Обновлено строк: {c.rowcount}")
     conn.commit()
     conn.close()
+
+def get_next_new_word(user_id: int) -> dict | None:
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT word, added_at FROM words_queue WHERE user_id = ? ORDER BY added_at ASC", (user_id,))
+    rows = c.fetchall()
+    print("[GET_NEXT] Очередь перед выбором:")
+    for r in rows:
+        print(f"  {r[0]} — {r[1]}")
+    if rows:
+        word, added_at = rows[0]
+        c.execute("SELECT word, pinyin, translation, hsk_level, context FROM words_queue WHERE user_id = ? AND word = ?", (user_id, word))
+        row = c.fetchone()
+        conn.close()
+        if row:
+            return {"word": row[0], "pinyin": row[1], "translation": row[2], "hsk_level": row[3], "context": row[4]}
+    conn.close()
+    return None
 
 def reset_user_data(user_id: int):
     """Удаляет все изученные слова и очередь пользователя."""
