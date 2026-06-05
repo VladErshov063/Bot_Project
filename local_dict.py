@@ -36,7 +36,7 @@ class ChineseDictionary:
             logger.error(f"Ошибка загрузки словаря: {e}")
 
     def _format_pinyin(self, pinyin: str) -> str:
-        """Конвертирует пиньинь с цифрами в символы с тонами."""
+        """Конвертирует пиньинь с цифрами (например, 'tian1' или 'zuó tian1') в тоновые символы."""
         tone_map = {
             'a1': 'ā', 'a2': 'á', 'a3': 'ǎ', 'a4': 'à',
             'e1': 'ē', 'e2': 'é', 'e3': 'ě', 'e4': 'è',
@@ -45,11 +45,37 @@ class ChineseDictionary:
             'u1': 'ū', 'u2': 'ú', 'u3': 'ǔ', 'u4': 'ù',
             'v1': 'ǖ', 'v2': 'ǘ', 'v3': 'ǚ', 'v4': 'ǜ',
         }
-        result = pinyin
-        for key, val in tone_map.items():
-            result = result.replace(key, val)
-        result = result.replace('v', 'ü')
-        return result
+        
+        def convert_syllable(syl: str) -> str:
+            if not syl:
+                return syl
+            last_char = syl[-1]
+            if last_char not in "1234":
+                return syl
+            tone = last_char
+            base = syl[:-1]
+            if 'a' in base:
+                pos = base.rfind('a')
+            elif 'e' in base:
+                pos = base.rfind('e')
+            elif 'o' in base:
+                pos = base.rfind('o')
+            elif 'u' in base:
+                pos = base.rfind('u')
+            elif 'i' in base:
+                pos = base.rfind('i')
+            else:
+                pos = -1
+            if pos != -1:
+                vowel = base[pos]
+                key = vowel + tone
+                if key in tone_map:
+                    return base[:pos] + tone_map[key] + base[pos+1:]
+            return base
+        
+        syllables = pinyin.split()
+        converted = [convert_syllable(s) for s in syllables]
+        return ' '.join(converted)
 
     def lookup(self, word: str):
         """Возвращает (пиньинь, перевод) или (None, None)."""

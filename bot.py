@@ -201,17 +201,19 @@ async def add_text_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if is_word_known(user_id, w):
             continue
         context_sent = extract_sentence(text, w)
+
+        info = HSK_DICT.get(w)
+        if info:
+            pinyin, translation, word_level = info
+            if word_level > user_level:
+                if add_to_queue(user_id, w, pinyin, translation, word_level, context=context_sent):
+                    new_found += 1
+            continue
+
         pinyin, translation = LOCAL_DICT.lookup(w)
         if pinyin and translation:
             if add_to_queue(user_id, w, pinyin, translation, 0, context=context_sent):
                 new_found += 1
-            continue
-        hsk_info = HSK_DICT.get(w)
-        if hsk_info:
-            pinyin, translation, word_level = hsk_info
-            if word_level > user_level:
-                if add_to_queue(user_id, w, pinyin, translation, word_level, context=context_sent):
-                    new_found += 1
         else:
             print(f"⚠️ Слово '{w}' не найдено в словарях, пропущено")
 
