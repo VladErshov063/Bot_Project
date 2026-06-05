@@ -370,7 +370,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
-        "📋 *Доступные команды:*\n\n"
+        "📋 Доступные команды:\n\n"
         "/start - Начать работу\n"
         "/level <1-6> - Установить свой уровень HSK\n"
         "/add_text - Отправить китайский текст для выделения новых слов\n"
@@ -381,9 +381,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/game - Выбрать игру для повторения слов\n"
         "/cancel - Отменить текущий диалог\n"
         "/help - Показать это сообщение\n\n"
-        "💡 *Совет:* Установите правильный уровень HSK (/level), чтобы бот правильно определял знакомые и новые слова."
+        "💡 Совет: Установите правильный уровень HSK (/level), чтобы бот правильно определял знакомые и новые слова."
     )
-    await update.message.reply_text(text, parse_mode="Markdown")
+    await update.message.reply_text(text)
 
 def main():
     init_db()

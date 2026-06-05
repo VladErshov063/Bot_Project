@@ -1,5 +1,12 @@
 import json
 from config import HSK_FILES
+import os
+
+print("Путь к data:", os.path.abspath("data"))
+if os.path.exists("data"):
+    print("Файлы в data:", os.listdir("data"))
+else:
+    print("Папка data не найдена!")
 
 def load_hsk_dicts() -> dict[str, tuple[str, str, int]]:
     hsk_dict = {}
