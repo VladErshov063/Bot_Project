@@ -3,15 +3,15 @@ import os
 TOKEN = os.environ.get("TOKEN")
 
 HSK_FILES = {
-    1: "data/hsk1_.json",
-    2: "data/hsk2_.json",
-    3: "data/hsk3_.json",
-    4: "data/hsk4_.json",
-    5: "data/hsk5_.json",
-    6: "data/hsk6_.json",
+    1: "hsk_data/hsk1_.json",
+    2: "hsk_data/hsk2_.json",
+    3: "hsk_data/hsk3_.json",
+    4: "hsk_data/hsk4_.json",
+    5: "hsk_data/hsk5_.json",
+    6: "hsk_data/hsk6_.json",
 }
 
-def _load_stop_words(file_path: str = "data/stopwords.txt") -> set:
+def _load_stop_words(file_path: str = "hsk_data/stopwords.txt") -> set:
     stop_words = set()
     try:
         with open(file_path, "r", encoding="utf-8") as f:
