@@ -13,6 +13,8 @@ class ChineseDictionary:
         self._load()
 
     def _load(self):
+        print(f"Пытаюсь загрузить словарь из: {self.dict_path.absolute()}")
+        print(f"Файл существует: {self.dict_path.exists()}")
         if not self.dict_path.exists():
             logger.warning(f"Файл словаря не найден: {self.dict_path}")
             return
