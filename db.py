@@ -189,3 +189,12 @@ def get_all_known_words(user_id: int) -> list[dict]:
     rows = c.fetchall()
     conn.close()
     return [{"word": row[0], "translation": row[1]} for row in rows]
+
+def bump_queue_word(user_id: int, word: str):
+    """Перемещает слово в конец очереди (обновляет added_at)."""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("UPDATE words_queue SET added_at = ? WHERE user_id = ? AND word = ?",
+              (datetime.now(), user_id, word))
+    conn.commit()
+    conn.close()

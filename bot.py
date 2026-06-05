@@ -14,6 +14,20 @@ from db import (
 from hsk_loader import load_hsk_dicts
 from tokenizer import segment_chinese
 from telegram.request import HTTPXRequest
+from local_dict import ChineseDictionary
+
+HSK_DICT = load_hsk_dicts()
+LOCAL_DICT = ChineseDictionary()
+
+logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+TEXT_INPUT = 1
+
+GAMES = {
+    "translate": "📝 Угадай перевод слова",
+    "pinyin": "🔊 Выбери правильный пиньинь"
+}
 
 def extract_sentence(text: str, word: str) -> str:
     """Извлекает предложение, содержащее слово, или возвращает первые 100 символов текста."""
@@ -33,18 +47,6 @@ def extract_sentence(text: str, word: str) -> str:
             return sent[:150]
     
     return text[:100]
-
-HSK_DICT = load_hsk_dicts()
-
-logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-TEXT_INPUT = 1
-
-GAMES = {
-    "translate": "📝 Угадай перевод слова",
-    "pinyin": "🔊 Выбери правильный пиньинь"
-}
 
 async def game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показывает список доступных игр для выбора."""
@@ -155,11 +157,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     level = get_user_level(user_id)
     await update.message.reply_text(
-        f"大家好! Я, робот-бобот, помогу тебе учить китайские слова.\n"
-        f"Твой текущий уровень HSK: {level}.\n"
-        f"Изменить уровень можно командой /level <1-6>\n"
-        f"С помощью команды /help можно узнать, что я умею!\n"
-        f"Отправь мне китайский текст командой /add_text, и я найду новые слова."
+        f"🇨🇳 *Привет! Я робот-бобот, твой помощник в изучении китайского.*\n\n"
+        f"📌 Твой уровень HSK: `{level}`\n"
+        f"🔧 Изменить уровень: `/level 1-6`\n"
+        f"📖 Посмотреть все команды: `/help`\n\n"
+        f"🎯 *Что я умею:*\n"
+        f"• Выделять новые слова из любого текста (`/add_text`)\n"
+        f"• Показывать карточки с переводом, пиньинем и контекстом (`/learn`)\n"
+        f"• Повторять слова по интервальной системе (`/review`)\n"
+        f"• Играть в игры для запоминания (`/game`)\n"
+        f"• Вести ваш личный словарик (`/mydict`)\n\n"
+        f"💡 *Совет:* Начните с установки своего уровня, затем отправьте текст – и бот покажет новые слова!",
+        parse_mode="Markdown"
     )
 
 async def set_level(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -198,15 +207,22 @@ async def add_text_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if add_to_queue(user_id, w, pinyin, translation, word_level, context=context_sent):
                     new_found += 1
         else:
-            if add_to_queue(user_id, w, "", "", 0, context=context_sent):
-                new_found += 1
+            pinyin, translation = LOCAL_DICT.lookup(w)
+            if pinyin and translation:
+                if add_to_queue(user_id, w, pinyin, translation, 0, context=context_sent):
+                    new_found += 1
+            else:
+                if add_to_queue(user_id, w, "", "", 0, context=context_sent):
+                    new_found += 1
 
     known_count, queue_count = get_stats(user_id)
     await update.message.reply_text(
-        f"Обработано. Найдено новых слов: {new_found}.\n"
-        f"Всего в очереди на изучение: {queue_count}.\n"
-        f"Изучено слов: {known_count}.\n"
-        f"Для изучения используй /learn"
+        f"✅ *Обработано!*\n\n"
+        f"📝 Новых слов: `{new_found}`\n"
+        f"📚 Всего в очереди: `{queue_count}`\n"
+        f"🎓 Изучено слов: `{known_count}`\n\n"
+        f"👉 Для изучения используй `/learn`",
+        parse_mode="Markdown"
     )
     return ConversationHandler.END
 
@@ -257,6 +273,8 @@ async def learn_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             conn.close()
     else:
         await query.edit_message_text("Слово пропущено. Оно останется в очереди.")
+        from db import bump_queue_word
+        bump_queue_word(user_id, word)
 
     next_word = get_next_new_word(user_id)
     if next_word:
