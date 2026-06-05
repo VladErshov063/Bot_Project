@@ -21,12 +21,17 @@ class ChineseDictionary:
                 for line in f:
                     if line.startswith("#"):
                         continue
-                    match = re.match(r"^(\S+)\s+(\S+)\s*\[(.*?)\]\s*/(.*)$", line)
+                    match = re.match(r"^(\S+)\s+(\S+)\s*\[(.*?)\]\s*/(.*)", line)
                     if match:
-                        word = match.group(1)
-                        pinyin = match.group(2)
-                        translation = match.group(3).split("/")[0]
+                        simplified = match.group(1)
+                        traditional = match.group(2)
+                        pinyin = match.group(3)
+                        translation = match.group(4).split("/")[0]
+                        self.entries[simplified] = (self._format_pinyin(pinyin), translation)
+                        if simplified != traditional:
+                            self.entries[traditional] = (self._format_pinyin(pinyin), translation)
                         self.entries[word] = (self._format_pinyin(pinyin), translation)
+
             logger.info(f"Загружено {len(self.entries)} слов из локального словаря")
         except Exception as e:
             logger.error(f"Ошибка загрузки словаря: {e}")
