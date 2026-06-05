@@ -355,6 +355,34 @@ async def review_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await query.message.reply_text("Повторение окончено! Ты молодец!")
 
+async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ Да, сбросить всё", callback_data="confirm_reset"),
+            InlineKeyboardButton("❌ Отмена", callback_data="cancel_reset")
+        ]
+    ])
+    await update.message.reply_text(
+        "⚠️ *ВНИМАНИЕ!* Эта команда удалит *ВСЕ* ваши изученные слова и очистит очередь.\n"
+        "Уровень HSK будет сброшен на 1.\n\n"
+        "Вы уверены?",
+        parse_mode="Markdown",
+        reply_markup=keyboard
+    )
+
+async def reset_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    data = query.data
+
+    if data == "confirm_reset":
+        reset_user_data(user_id)
+        await query.edit_message_text("✅ Все ваши данные сброшены. Можно начинать заново командой /start.")
+    else:
+        await query.edit_message_text("❌ Сброс отменён.")
+
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     known, queue = get_stats(user_id)
@@ -399,6 +427,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/mydict - Показать все изученные слова с переводом\n"
         "/game - Выбрать игру для повторения слов\n"
         "/cancel - Отменить текущий диалог\n"
+        "/reset - Полностью очистить все изученные слова и очередь\n"
         "/help - Показать это сообщение\n\n"
         "💡 Совет: Установите правильный уровень HSK (/level), чтобы бот правильно определял знакомые и новые слова."
     )
@@ -428,6 +457,8 @@ def main():
     app.add_handler(CallbackQueryHandler(translate_game_callback, pattern="^game_translate_"))
     app.add_handler(CommandHandler("cancel", cancel))
     app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("reset", reset))
+    app.add_handler(CallbackQueryHandler(reset_callback, pattern="^(confirm_reset|cancel_reset)$"))
 
     logger.info("Бот запущен")
     app.run_polling()

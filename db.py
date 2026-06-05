@@ -198,3 +198,13 @@ def bump_queue_word(user_id: int, word: str):
               (datetime.now(), user_id, word))
     conn.commit()
     conn.close()
+
+def reset_user_data(user_id: int):
+    """Удаляет все изученные слова и очередь для пользователя."""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("DELETE FROM known_words WHERE user_id = ?", (user_id,))
+    c.execute("DELETE FROM words_queue WHERE user_id = ?", (user_id,))
+    conn.commit()
+    conn.close()
+    
