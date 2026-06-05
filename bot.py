@@ -200,21 +200,20 @@ async def add_text_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for w in words:
         if is_word_known(user_id, w):
             continue
-        info = HSK_DICT.get(w)
         context_sent = extract_sentence(text, w)
-        if info:
-            pinyin, translation, word_level = info
+        pinyin, translation = LOCAL_DICT.lookup(w)
+        if pinyin and translation:
+            if add_to_queue(user_id, w, pinyin, translation, 0, context=context_sent):
+                new_found += 1
+            continue
+        hsk_info = HSK_DICT.get(w)
+        if hsk_info:
+            pinyin, translation, word_level = hsk_info
             if word_level > user_level:
                 if add_to_queue(user_id, w, pinyin, translation, word_level, context=context_sent):
                     new_found += 1
         else:
-            pinyin, translation = LOCAL_DICT.lookup(w)
-            if pinyin and translation:
-                if add_to_queue(user_id, w, pinyin, translation, 0, context=context_sent):
-                    new_found += 1
-            else:
-                if add_to_queue(user_id, w, "", "", 0, context=context_sent):
-                    new_found += 1
+            print(f"⚠️ Слово '{w}' не найдено в словарях, пропущено")
 
     known_count, queue_count = get_stats(user_id)
     await update.message.reply_text(
@@ -245,7 +244,7 @@ async def learn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ Знаю", callback_data=f"learn_know_{word_data['word']}")],
-        [InlineKeyboardButton("❌ Не знаю", callback_data="learn_skip")]
+        [InlineKeyboardButton("❌ Не знаю", callback_data=f"learn_skip_{word_data['word']}")]
     ])
     await update.message.reply_text(card_text, parse_mode="Markdown", reply_markup=keyboard)
 
@@ -272,10 +271,13 @@ async def learn_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.edit_message_text("Ошибка: слово не найдено в очереди.")
         finally:
             conn.close()
-    else:
-        await query.edit_message_text("Слово пропущено. Оно останется в очереди.")
-        print(f"[LEARN_CALLBACK] Пропускаем слово '{word}' для user {user_id}")
+    elif data.startswith("learn_skip_"):
+        word = data.replace("learn_skip_", "")
+        await query.edit_message_text("Слово пропущено. Оно перемещено в конец очереди.")
         bump_queue_word(user_id, word)
+    else:
+        await query.edit_message_text("Неизвестная команда.")
+        return
 
     next_word = get_next_new_word(user_id)
     if next_word:
@@ -290,7 +292,7 @@ async def learn_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("✅ Знаю", callback_data=f"learn_know_{next_word['word']}")],
-            [InlineKeyboardButton("❌ Не знаю", callback_data="learn_skip")]
+            [InlineKeyboardButton("❌ Не знаю", callback_data=f"learn_skip_{next_word['word']}")]
         ])
         await query.message.reply_text(card_text, parse_mode="Markdown", reply_markup=keyboard)
     else:
