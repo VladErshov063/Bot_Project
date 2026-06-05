@@ -38,15 +38,16 @@ def init_db():
             PRIMARY KEY (user_id, word)
         )
     """)
+    c.execute("DROP TABLE IF EXISTS words_queue")
     c.execute("""
-        CREATE TABLE IF NOT EXISTS words_queue (
+        CREATE TABLE words_queue (
             user_id INTEGER,
             word TEXT NOT NULL,
             pinyin TEXT,
             translation TEXT,
             hsk_level INTEGER,
             context TEXT,
-            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            added_at TEXT,
             PRIMARY KEY (user_id, word)
         )
     """)
@@ -93,10 +94,11 @@ def add_to_queue(user_id: int, word: str, pinyin: str, translation: str, hsk_lev
     if c.fetchone():
         conn.close()
         return False
+    now_str = datetime.now().isoformat()
     c.execute("""
-        INSERT INTO words_queue (user_id, word, pinyin, translation, hsk_level, context)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (user_id, word, pinyin, translation, hsk_level, context))
+        INSERT INTO words_queue (user_id, word, pinyin, translation, hsk_level, context, added_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (user_id, word, pinyin, translation, hsk_level, context, now_str))
     conn.commit()
     conn.close()
     return True
@@ -177,7 +179,6 @@ def is_word_known(user_id: int, word: str) -> bool:
     return found
 
 def get_all_known_words(user_id: int) -> list[dict]:
-    """Возвращает список всех изученных слов с переводом."""
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("""
@@ -191,20 +192,20 @@ def get_all_known_words(user_id: int) -> list[dict]:
     return [{"word": row[0], "translation": row[1]} for row in rows]
 
 def bump_queue_word(user_id: int, word: str):
-    """Перемещает слово в конец очереди (обновляет added_at)."""
+    """Перемещает слово в конец очереди, обновляя added_at на текущее время с микросекундами."""
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
+    now_str = datetime.now().isoformat()
     c.execute("UPDATE words_queue SET added_at = ? WHERE user_id = ? AND word = ?",
-              (datetime.now(), user_id, word))
+              (now_str, user_id, word))
     conn.commit()
     conn.close()
 
 def reset_user_data(user_id: int):
-    """Удаляет все изученные слова и очередь для пользователя."""
+    """Удаляет все изученные слова и очередь пользователя."""
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("DELETE FROM known_words WHERE user_id = ?", (user_id,))
     c.execute("DELETE FROM words_queue WHERE user_id = ?", (user_id,))
     conn.commit()
     conn.close()
-    

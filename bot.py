@@ -9,7 +9,8 @@ from telegram.ext import (
 from config import TOKEN
 from db import (
     init_db, get_user_level, set_user_level, add_known_word, add_to_queue,
-    get_next_new_word, get_words_for_review, update_review, get_stats, is_word_known, get_all_known_words
+    get_next_new_word, get_words_for_review, update_review, get_stats,
+    is_word_known, get_all_known_words, bump_queue_word, reset_user_data
 )
 from hsk_loader import load_hsk_dicts
 from tokenizer import segment_chinese
@@ -273,7 +274,6 @@ async def learn_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             conn.close()
     else:
         await query.edit_message_text("Слово пропущено. Оно останется в очереди.")
-        from db import bump_queue_word
         bump_queue_word(user_id, word)
 
     next_word = get_next_new_word(user_id)
