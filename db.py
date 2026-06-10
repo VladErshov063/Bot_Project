@@ -38,9 +38,8 @@ def init_db():
             PRIMARY KEY (user_id, word)
         )
     """)
-    c.execute("DROP TABLE IF EXISTS words_queue")
     c.execute("""
-        CREATE TABLE words_queue (
+        CREATE TABLE IF NOT EXISTS words_queue (
             user_id INTEGER,
             word TEXT NOT NULL,
             pinyin TEXT,
@@ -180,10 +179,9 @@ def bump_queue_word(user_id: int, word: str):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     now_str = datetime.now().isoformat()
-    print(f"[BUMP] Обновляем слово '{word}' для {user_id} -> {now_str}")
+    logger.debug(f"BUMP: '{word}' -> {now_str}")
     c.execute("UPDATE words_queue SET added_at = ? WHERE user_id = ? AND word = ?",
               (now_str, user_id, word))
-    print(f"[BUMP] Обновлено строк: {c.rowcount}")
     conn.commit()
     conn.close()
 
@@ -192,11 +190,9 @@ def get_next_new_word(user_id: int) -> dict | None:
     c = conn.cursor()
     c.execute("SELECT word, added_at FROM words_queue WHERE user_id = ? ORDER BY added_at ASC", (user_id,))
     rows = c.fetchall()
-    print("[GET_NEXT] Очередь перед выбором:")
-    for r in rows:
-        print(f"  {r[0]} — {r[1]}")
+    logger.debug(f"Queue for {user_id}: {[(r[0], r[1]) for r in rows]}")
     if rows:
-        word, added_at = rows[0]
+        word = rows[0][0]
         c.execute("SELECT word, pinyin, translation, hsk_level, context FROM words_queue WHERE user_id = ? AND word = ?", (user_id, word))
         row = c.fetchone()
         conn.close()

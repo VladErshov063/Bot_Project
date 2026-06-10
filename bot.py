@@ -27,11 +27,12 @@ TEXT_INPUT = 1
 GAMES = {
     "translate": "📝 Угадай перевод",
     "scramble": "🔄 Перемешанные иероглифы",
-    "pinyin": "🔊 Выбери иероглиф по пиньиню"
+    "pinyin": "🔊 Выбери иероглиф по пиньиню",
+    "chain": "⛓️ Цепочка слов",
+    "tones": "🎵 Выбери правильный пиньинь"
 }
 
 def extract_sentence(text: str, word: str) -> str:
-    """Извлекает предложение, содержащее слово, или возвращает первые 100 символов текста."""
     delimiters = ['。', '！', '？', '；', '!', '?', ';']
     sentences = []
     current = ''
@@ -42,14 +43,12 @@ def extract_sentence(text: str, word: str) -> str:
             current = ''
     if current.strip():
         sentences.append(current.strip())
-
     for sent in sentences:
         if word in sent:
             return sent[:150]
     return text[:100]
 
 def get_main_keyboard():
-    """Возвращает клавиатуру с основными командами."""
     buttons = [
         [KeyboardButton("/learn"), KeyboardButton("/review")],
         [KeyboardButton("/add_text"), KeyboardButton("/game")],
@@ -59,7 +58,6 @@ def get_main_keyboard():
     return ReplyKeyboardMarkup(buttons, resize_keyboard=True)
 
 async def show_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Отправляет inline-клавиатуру с выбором игр."""
     user_id = update.effective_user.id
     words = get_all_known_words(user_id)
     if len(words) < 4:
@@ -211,7 +209,6 @@ async def learn_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if next_word:
         if not hasattr(context, 'user_data') or not isinstance(context, ContextTypes.DEFAULT_TYPE):
             logger.error(f"learn_callback: некорректный контекст, тип: {type(context)}")
-            await query.message.reply_text("⚠️ Произошла техническая ошибка. Попробуйте снова /learn.")
             return
         context.user_data["current_learn_word"] = next_word["word"]
         card_text = (
@@ -308,14 +305,11 @@ async def mydict(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not words:
         await update.message.reply_text("📭 У вас пока нет изученных слов. Добавьте слова через /learn.")
         return
-    
     text = "📖 *Ваш словарик:*\n\n"
     for i, w in enumerate(words[:30], 1):
         text += f"{i}. {w['word']} — {w['translation']}\n"
-    
     if len(words) > 30:
         text += f"\n... и ещё {len(words)-30} слов. Список слишком длинный, показана только часть."
-    
     await update.message.reply_text(text, parse_mode="Markdown")
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -348,8 +342,7 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ])
     await update.message.reply_text(
-        "⚠️ *ВНИМАНИЕ!* Эта команда удалит *ВСЕ* ваши изученные слова и очистит очередь.\n"
-        "Уровень HSK будет сброшен на 1.\n\n"
+        "⚠️ *ВНИМАНИЕ!* Эта команда удалит *ВСЕ* ваши изученные слова и очистит очередь.\n\n"
         "Вы уверены?",
         parse_mode="Markdown",
         reply_markup=keyboard
@@ -366,23 +359,23 @@ async def reset_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await query.edit_message_text("❌ Сброс отменён.")
 
-
 async def game(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показывает список доступных игр для выбора."""
     await show_game_menu(update, context)
 
 async def game_choose_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обрабатывает выбор игры из меню."""
     query = update.callback_query
     await query.answer()
     game_id = query.data.replace("game_choose_", "")
-
     if game_id == "translate":
         await start_translate_game(update, context)
     elif game_id == "scramble":
         await start_scramble_game(update, context)
     elif game_id == "pinyin":
         await start_pinyin_game(update, context)
+    elif game_id == "chain":
+        await start_chain_game(update, context)
+    elif game_id == "tones":
+        await start_tones_game(update, context)
     else:
         await query.edit_message_text("🚧 Эта игра ещё в разработке.")
 
@@ -395,15 +388,26 @@ async def start_translate_game(update: Update, context: ContextTypes.DEFAULT_TYP
         message = update.message
 
     words = get_all_known_words(user_id)
-    words = [w for w in words if w["translation"]]
+    words = [w for w in words if w.get("word") and w.get("translation") and w["translation"].strip()]
+
     if len(words) < 4:
         await message.reply_text("❌ Недостаточно слов с переводом для игры (нужно минимум 4).")
         return
 
     target = random.choice(words)
     other_words = [w for w in words if w["word"] != target["word"]]
+    if len(other_words) < 3:
+        await message.reply_text("❌ Недостаточно вариантов для ответа.")
+        return
+
     options = random.sample(other_words, 3)
-    variants = [target["translation"]] + [opt["translation"] for opt in options]
+    try:
+        variants = [target["translation"]] + [opt["translation"] for opt in options]
+    except (TypeError, KeyError) as e:
+        logger.error(f"Ошибка формирования вариантов в translate: {e}")
+        await message.reply_text("❌ Произошла ошибка. Попробуйте позже.")
+        return
+
     random.shuffle(variants)
 
     context.user_data["translate_game"] = {
@@ -457,13 +461,13 @@ async def start_scramble_game(update: Update, context: ContextTypes.DEFAULT_TYPE
     else:
         user_id = update.effective_user.id
         message = update.message
-    
+
     all_words = get_all_known_words(user_id)
     words = [w for w in all_words if len(w['word']) >= 2]
     if len(words) < 4:
         await message.reply_text("❌ Нужно минимум 4 слова длиной 2+ иероглифа для игры.")
         return
-    
+
     target = random.choice(words)
     original = target['word']
     shuffled_list = list(original)
@@ -472,18 +476,18 @@ async def start_scramble_game(update: Update, context: ContextTypes.DEFAULT_TYPE
     if scrambled == original:
         random.shuffle(shuffled_list)
         scrambled = ''.join(shuffled_list)
-    
+
     other_words = [w for w in words if w['word'] != original]
     options = random.sample(other_words, 3)
     variants = [original] + [w['word'] for w in options]
     random.shuffle(variants)
-    
+
     context.user_data["scramble_game"] = {
         "original": original,
         "translation": target['translation'],
         "variants": variants
     }
-    
+
     keyboard = [[InlineKeyboardButton(v, callback_data=f"scramble_ans_{i}")] for i, v in enumerate(variants)]
     reply_markup = InlineKeyboardMarkup(keyboard)
     text = f"🔀 *Какое слово было перемешано?*\n\n{scrambled}"
@@ -524,7 +528,7 @@ async def start_pinyin_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         user_id = update.effective_user.id
         message = update.message
-    
+
     all_words = get_all_known_words(user_id)
     words_with_pinyin = []
     for w in all_words:
@@ -540,20 +544,20 @@ async def start_pinyin_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(words_with_pinyin) < 4:
         await message.reply_text("❌ Недостаточно слов с пиньинем для игры (нужно минимум 4).")
         return
-    
+
     target_word, target_pinyin, target_trans = random.choice(words_with_pinyin)
     other_words = [w for w in words_with_pinyin if w[0] != target_word]
     options = random.sample(other_words, 3)
     variants = [target_word] + [w[0] for w in options]
     random.shuffle(variants)
-    
+
     context.user_data["pinyin_game"] = {
         "correct": target_word,
         "pinyin": target_pinyin,
         "translation": target_trans,
         "variants": variants
     }
-    
+
     keyboard = [[InlineKeyboardButton(v, callback_data=f"pinyin_ans_{i}")] for i, v in enumerate(variants)]
     reply_markup = InlineKeyboardMarkup(keyboard)
     text = f"🔊 *Какой иероглиф соответствует пиньиню?*\n\n`{target_pinyin}`"
@@ -588,6 +592,251 @@ async def pinyin_game_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 async def pinyin_again_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await start_pinyin_game(update, context)
 
+async def start_chain_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.callback_query:
+        user_id = update.callback_query.from_user.id
+        message = update.callback_query.message
+    else:
+        user_id = update.effective_user.id
+        message = update.message
+
+    all_words = get_all_known_words(user_id)
+    if len(all_words) < 4:
+        await message.reply_text("❌ Недостаточно изученных слов для игры (нужно минимум 4).")
+        return
+
+    index = {}
+    for w in all_words:
+        first_char = w['word'][0]
+        index.setdefault(first_char, []).append(w)
+
+    current_word_obj = random.choice(all_words)
+    current_word = current_word_obj['word']
+    current_trans = current_word_obj['translation']
+
+    context.user_data["chain_game"] = {
+        "current_word": current_word,
+        "current_trans": current_trans,
+        "index": index,
+        "used_words": set([current_word])
+    }
+
+    await show_chain_question(update, context, message)
+
+async def show_chain_question(update: Update, context: ContextTypes.DEFAULT_TYPE, message):
+    game = context.user_data.get("chain_game")
+    if not game:
+        await message.reply_text("❌ Игра не активна. Начните заново через /game.")
+        return
+
+    current_word = game["current_word"]
+    current_trans = game["current_trans"]
+    last_char = current_word[-1]
+    index = game["index"]
+    used = game["used_words"]
+
+    candidates = [w for w in index.get(last_char, []) if w['word'] not in used]
+    if not candidates:
+        keyboard = [[InlineKeyboardButton("🎮 В меню", callback_data="to_game_menu")]]
+        await message.reply_text(
+            f"🏁 *Игра окончена!*\n\n"
+            f"Последнее слово: `{current_word}` — {current_trans}\n"
+            f"Нет слов на `{last_char}`. Вы справились отлично!",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        context.user_data.pop("chain_game", None)
+        return
+
+    num_options = min(3, len(candidates))
+    selected = random.sample(candidates, num_options)
+    correct_word_obj = random.choice(selected)
+    correct_word = correct_word_obj['word']
+    variants = [correct_word] + [w['word'] for w in selected if w['word'] != correct_word]
+    if len(variants) < 4:
+        all_other = [w for w in index.get(last_char, []) if w['word'] not in used and w['word'] not in variants]
+        if all_other:
+            variants.extend(random.sample(all_other, min(4 - len(variants), len(all_other))))
+    random.shuffle(variants)
+
+    game["chain_question"] = {
+        "correct": correct_word,
+        "correct_trans": correct_word_obj['translation'],
+        "variants": variants,
+        "last_char": last_char
+    }
+
+    keyboard = [[InlineKeyboardButton(v, callback_data=f"chain_ans_{i}")] for i, v in enumerate(variants)]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    text = (
+        f"⛓️ *Цепочка слов*\n\n"
+        f"Текущее слово: `{current_word}` — {current_trans}\n"
+        f"Последний иероглиф: `{last_char}`\n\n"
+        f"Выберите слово, которое начинается на `{last_char}`:"
+    )
+    if update.callback_query:
+        await update.callback_query.edit_message_text(text, parse_mode="Markdown", reply_markup=reply_markup)
+    else:
+        await message.reply_text(text, parse_mode="Markdown", reply_markup=reply_markup)
+
+async def chain_game_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    selected_index = int(query.data.split("_")[-1])
+    game = context.user_data.get("chain_game")
+    if not game:
+        await query.edit_message_text("❌ Игра устарела. Начните новую командой /game.")
+        return
+    question = game.get("chain_question")
+    if not question:
+        await query.edit_message_text("❌ Ошибка игры. Начните заново.")
+        return
+
+    selected_word = question["variants"][selected_index]
+    correct_word = question["correct"]
+    if selected_word == correct_word:
+        correct_obj = None
+        for w in game["index"].get(correct_word[0], []):
+            if w['word'] == correct_word:
+                correct_obj = w
+                break
+        if not correct_obj:
+            correct_obj = {"word": correct_word, "translation": "?"}
+        game["current_word"] = correct_word
+        game["current_trans"] = correct_obj['translation']
+        game["used_words"].add(correct_word)
+        game.pop("chain_question", None)
+        await show_chain_question(update, context, query.message)
+    else:
+        correct_obj = None
+        for w in game["index"].get(correct_word[0], []):
+            if w['word'] == correct_word:
+                correct_obj = w
+                break
+        if not correct_obj:
+            correct_obj = {"word": correct_word, "translation": "?"}
+        keyboard = [[InlineKeyboardButton("🎮 В меню", callback_data="to_game_menu")]]
+        await query.edit_message_text(
+            f"❌ *Неправильно.*\n\n"
+            f"Вы выбрали: `{selected_word}`\n"
+            f"Правильный ответ: `{correct_word}` — {correct_obj['translation']}\n\n"
+            f"Игра окончена.",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        context.user_data.pop("chain_game", None)
+
+async def chain_again_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await start_chain_game(update, context)
+
+def generate_tone_variants(pinyin: str, num_variants: int = 3):
+    """Генерирует варианты пиньиня с изменёнными тонами."""
+    import re
+    tone_chars = {'ā', 'á', 'ǎ', 'à', 'ē', 'é', 'ě', 'è', 'ī', 'í', 'ǐ', 'ì', 'ō', 'ó', 'ǒ', 'ò', 'ū', 'ú', 'ǔ', 'ù', 'ǖ', 'ǘ', 'ǚ', 'ǜ'}
+    variants = set()
+    for _ in range(20):
+        new_pinyin = list(pinyin)
+        num_changes = random.randint(1, min(2, len([c for c in new_pinyin if c in tone_chars])))
+        changed = 0
+        while changed < num_changes:
+            pos = random.randint(0, len(new_pinyin)-1)
+            if new_pinyin[pos] in tone_chars:
+                base = new_pinyin[pos][0]
+                new_tone = random.choice([1,2,3,4])
+                if base == 'a':
+                    new_char = ['ā','á','ǎ','à'][new_tone-1]
+                elif base == 'e':
+                    new_char = ['ē','é','ě','è'][new_tone-1]
+                elif base == 'i':
+                    new_char = ['ī','í','ǐ','ì'][new_tone-1]
+                elif base == 'o':
+                    new_char = ['ō','ó','ǒ','ò'][new_tone-1]
+                elif base == 'u':
+                    new_char = ['ū','ú','ǔ','ù'][new_tone-1]
+                elif base == 'ü':
+                    new_char = ['ǖ','ǘ','ǚ','ǜ'][new_tone-1]
+                else:
+                    continue
+                new_pinyin[pos] = new_char
+                changed += 1
+        variant = ''.join(new_pinyin)
+        if variant != pinyin:
+            variants.add(variant)
+        if len(variants) >= num_variants:
+            break
+    return list(variants)[:num_variants]
+
+async def start_tones_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.callback_query:
+        user_id = update.callback_query.from_user.id
+        message = update.callback_query.message
+    else:
+        user_id = update.effective_user.id
+        message = update.message
+
+    all_words = get_all_known_words(user_id)
+    words_with_pinyin = []
+    for w in all_words:
+        word = w['word']
+        info = HSK_DICT.get(word)
+        if info and info[0]:
+            pinyin = info[0]
+            words_with_pinyin.append((word, pinyin, w['translation']))
+        else:
+            pinyin, translation = LOCAL_DICT.lookup(word)
+            if pinyin:
+                words_with_pinyin.append((word, pinyin, translation))
+    if len(words_with_pinyin) < 4:
+        await message.reply_text("❌ Недостаточно слов с пиньинем для игры (нужно минимум 4).")
+        return
+
+    target_word, target_pinyin, target_trans = random.choice(words_with_pinyin)
+    variants = [target_pinyin]
+    wrong = generate_tone_variants(target_pinyin, 3)
+    variants.extend(wrong)
+    random.shuffle(variants)
+
+    context.user_data["tones_game"] = {
+        "word": target_word,
+        "correct": target_pinyin,
+        "translation": target_trans,
+        "variants": variants
+    }
+
+    keyboard = [[InlineKeyboardButton(v, callback_data=f"tones_ans_{i}")] for i, v in enumerate(variants)]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    text = f"🎵 *Какой пиньинь правильный?*\n\nСлово: `{target_word}`"
+    if update.callback_query:
+        await update.callback_query.edit_message_text(text, parse_mode="Markdown", reply_markup=reply_markup)
+    else:
+        await update.message.reply_text(text, parse_mode="Markdown", reply_markup=reply_markup)
+
+async def tones_game_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    selected_index = int(query.data.split("_")[-1])
+    game_state = context.user_data.get("tones_game")
+    if not game_state:
+        await query.edit_message_text("❌ Игра устарела. Начните новую командой /game.")
+        return
+    correct = game_state["correct"]
+    word = game_state["word"]
+    translation = game_state["translation"]
+    selected = game_state["variants"][selected_index]
+    if selected == correct:
+        text = f"✅ *Правильно!*\n\n`{word}` → {correct} — {translation}"
+    else:
+        text = f"❌ *Неправильно.*\n\nПравильный ответ: `{word}` → {correct} — {translation}"
+    keyboard = [
+        [InlineKeyboardButton("🔁 Ещё раз", callback_data="tones_again")],
+        [InlineKeyboardButton("🎮 В меню", callback_data="to_game_menu")]
+    ]
+    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+    context.user_data.pop("tones_game", None)
+
+async def tones_again_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await start_tones_game(update, context)
+
 async def to_game_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_game_menu(update, context)
 
@@ -618,6 +867,10 @@ def main():
     app.add_handler(CallbackQueryHandler(scramble_again_callback, pattern="^scramble_again$"))
     app.add_handler(CallbackQueryHandler(pinyin_game_callback, pattern="^pinyin_ans_"))
     app.add_handler(CallbackQueryHandler(pinyin_again_callback, pattern="^pinyin_again$"))
+    app.add_handler(CallbackQueryHandler(chain_game_callback, pattern="^chain_ans_"))
+    app.add_handler(CallbackQueryHandler(chain_again_callback, pattern="^chain_again$"))
+    app.add_handler(CallbackQueryHandler(tones_game_callback, pattern="^tones_ans_"))
+    app.add_handler(CallbackQueryHandler(tones_again_callback, pattern="^tones_again$"))
     app.add_handler(CallbackQueryHandler(to_game_menu_callback, pattern="^to_game_menu$"))
     app.add_handler(CommandHandler("cancel", cancel))
     app.add_handler(CommandHandler("help", help_command))
