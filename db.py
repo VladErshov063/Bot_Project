@@ -1,6 +1,9 @@
 import sqlite3
 import os
+import logging
 from datetime import datetime, timedelta
+
+logger = logging.getLogger(__name__)
 
 def get_db_path():
     if os.path.exists("/app/data"):
