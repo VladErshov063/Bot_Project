@@ -192,9 +192,21 @@ async def learn_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if row:
                 pinyin, translation, hsk_level, context = row
                 add_known_word(user_id, word, pinyin, translation, hsk_level, context)
-                await query.edit_message_text(f"✅ Слово «{word}» добавлено в изученные!")
+                c.execute("SELECT COUNT(*) FROM words_queue WHERE user_id = ?", (user_id,))
+                queue_count = c.fetchone()[0]
+                if queue_count == 0:
+                    await query.edit_message_text(
+                        f"✅ Слово «{word}» добавлено в изученные! В очереди больше нет слов. Отлично!",
+                        reply_markup=get_main_keyboard()
+                    )
+                    return
+                else:
+                    await query.edit_message_text(
+                        f"✅ Слово «{word}» добавлено в изученные! Осталось слов в очереди: {queue_count}"
+                    )
             else:
                 await query.edit_message_text("Ошибка: слово не найдено в очереди.")
+                return
         finally:
             conn.close()
     elif data.startswith("learn_skip_"):
