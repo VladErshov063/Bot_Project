@@ -79,7 +79,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     level = get_user_level(user_id)
     await update.message.reply_text(
-        f"🇨🇳 *Привет! Я робот-бобот, твой помощник в изучении китайского.*\n\n"
+        f"🇨🇳 *Привет! Я 机器-教师, твой помощник в изучении китайского!*\n\n"
         f"📌 Твой уровень HSK: `{level}`\n"
         f"🔧 Изменить уровень: `/level 1-6`\n"
         f"📖 Посмотреть все команды: `/help`\n\n"
