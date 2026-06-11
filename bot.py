@@ -355,7 +355,8 @@ async def reset_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     if data == "confirm_reset":
         reset_user_data(user_id)
-        await query.edit_message_text("✅ Все ваши данные сброшены.", reply_markup=get_main_keyboard())
+        await query.edit_message_text("✅ Все ваши данные сброшены.")
+        await query.message.reply_text("Нажмите /start или используйте меню.", reply_markup=get_main_keyboard())
     else:
         await query.edit_message_text("❌ Сброс отменён.")
 
