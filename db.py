@@ -193,14 +193,13 @@ def get_next_new_word(user_id: int) -> dict | None:
     c = conn.cursor()
     c.execute("SELECT word, added_at FROM words_queue WHERE user_id = ? ORDER BY added_at ASC", (user_id,))
     rows = c.fetchall()
-    logger.debug(f"Queue for {user_id}: {[(r[0], r[1]) for r in rows]}")
     if rows:
         word = rows[0][0]
         c.execute("SELECT word, pinyin, translation, hsk_level, context FROM words_queue WHERE user_id = ? AND word = ?", (user_id, word))
         row = c.fetchone()
         conn.close()
         if row:
-            return {"word": row[0], "pinyin": row[1], "translation": row[2], "hsk_level": row[3], "context": row[4]}
+            return {"word": row[0], "pinyin": row[1] or "", "translation": row[2] or "", "hsk_level": row[3] or 0, "context": row[4] or ""}
     conn.close()
     return None
 

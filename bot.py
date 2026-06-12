@@ -576,6 +576,9 @@ async def start_pinyin_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pinyin, translation = LOCAL_DICT.lookup(word)
             if pinyin:
                 words_with_pinyin.append((word, pinyin, translation))
+
+    words_with_pinyin = [(word, pinyin, trans) for word, pinyin, trans in words_with_pinyin if pinyin]
+
     if len(words_with_pinyin) < 4:
         await message.reply_text("❌ Недостаточно слов с пиньинем для игры (нужно минимум 4).")
         return
@@ -766,34 +769,38 @@ async def chain_again_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
 def generate_tone_variants(pinyin: str, num_variants: int = 3):
     """Генерирует варианты пиньиня с изменёнными тонами."""
-    import re
     tone_chars = {'ā', 'á', 'ǎ', 'à', 'ē', 'é', 'ě', 'è', 'ī', 'í', 'ǐ', 'ì', 'ō', 'ó', 'ǒ', 'ò', 'ū', 'ú', 'ǔ', 'ù', 'ǖ', 'ǘ', 'ǚ', 'ǜ'}
+    if not any(c in tone_chars for c in pinyin):
+        return []
     variants = set()
-    for _ in range(20):
+    max_attempts = 100
+    for _ in range(max_attempts):
         new_pinyin = list(pinyin)
-        num_changes = random.randint(1, min(2, len([c for c in new_pinyin if c in tone_chars])))
+        tone_positions = [i for i, c in enumerate(new_pinyin) if c in tone_chars]
+        if not tone_positions:
+            break
+        num_changes = random.randint(1, min(2, len(tone_positions)))
         changed = 0
         while changed < num_changes:
-            pos = random.randint(0, len(new_pinyin)-1)
-            if new_pinyin[pos] in tone_chars:
-                base = new_pinyin[pos][0]
-                new_tone = random.choice([1,2,3,4])
-                if base == 'a':
-                    new_char = ['ā','á','ǎ','à'][new_tone-1]
-                elif base == 'e':
-                    new_char = ['ē','é','ě','è'][new_tone-1]
-                elif base == 'i':
-                    new_char = ['ī','í','ǐ','ì'][new_tone-1]
-                elif base == 'o':
-                    new_char = ['ō','ó','ǒ','ò'][new_tone-1]
-                elif base == 'u':
-                    new_char = ['ū','ú','ǔ','ù'][new_tone-1]
-                elif base == 'ü':
-                    new_char = ['ǖ','ǘ','ǚ','ǜ'][new_tone-1]
-                else:
-                    continue
-                new_pinyin[pos] = new_char
-                changed += 1
+            pos = random.choice(tone_positions)
+            base = new_pinyin[pos][0]
+            new_tone = random.choice([1,2,3,4])
+            if base == 'a':
+                new_char = ['ā','á','ǎ','à'][new_tone-1]
+            elif base == 'e':
+                new_char = ['ē','é','ě','è'][new_tone-1]
+            elif base == 'i':
+                new_char = ['ī','í','ǐ','ì'][new_tone-1]
+            elif base == 'o':
+                new_char = ['ō','ó','ǒ','ò'][new_tone-1]
+            elif base == 'u':
+                new_char = ['ū','ú','ǔ','ù'][new_tone-1]
+            elif base == 'ü':
+                new_char = ['ǖ','ǘ','ǚ','ǜ'][new_tone-1]
+            else:
+                continue
+            new_pinyin[pos] = new_char
+            changed += 1
         variant = ''.join(new_pinyin)
         if variant != pinyin:
             variants.add(variant)
@@ -821,6 +828,9 @@ async def start_tones_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pinyin, translation = LOCAL_DICT.lookup(word)
             if pinyin:
                 words_with_pinyin.append((word, pinyin, translation))
+
+    words_with_pinyin = [(word, pinyin, trans) for word, pinyin, trans in words_with_pinyin if pinyin]
+
     if len(words_with_pinyin) < 4:
         await message.reply_text("❌ Недостаточно слов с пиньинем для игры (нужно минимум 4).")
         return
