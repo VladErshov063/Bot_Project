@@ -32,21 +32,57 @@ GAMES = {
     "tones": "🎵 Выбери правильный пиньинь"
 }
 
-def extract_sentence(text: str, word: str) -> str:
-    delimiters = ['。', '！', '？', '；', '!', '?', ';']
+def extract_sentence(text: str, word: str, max_len: int = 150, window: int = 50) -> str:
+    sentence_delimiters = set('。！？；.!?;\n')
+    clause_delimiters = set('，,、:：;；')
+
     sentences = []
-    current = ''
-    for ch in text:
-        current += ch
-        if ch in delimiters:
-            sentences.append(current.strip())
-            current = ''
-    if current.strip():
-        sentences.append(current.strip())
+    starter = 0
+    for i, ch in enumerate(text):
+        if ch in sentence_delimiters:
+            sent = text[starter:i+1].strip()
+            if sent:
+                sentences.append(sent)
+            starter = i + 1
+    if starter < len(text):
+        tail = text[starter:].strip()
+        if tail:
+            sentences.append(tail)
+
+    target_sent = None
     for sent in sentences:
         if word in sent:
-            return sent[:150]
-    return text[:100]
+            target_sent = sent
+            break
+    if not target_sent:
+        return text[:max_len]
+
+    if len(target_sent) <= max_len:
+        return target_sent
+
+    pos = target_sent.find(word)
+    if pos == -1:
+        return target_sent[:max_len]
+
+    left = max(0, pos - window)
+    right = min(len(target_sent), pos + len(word) + window)
+
+    if left > 0:
+        for i in range(left - 1, -1, -1):
+            if target_sent[i] in clause_delimiters or target_sent[i] in sentence_delimiters:
+                left = i + 1
+                break
+    if right < len(target_sent):
+        for i in range(right, len(target_sent)):
+            if target_sent[i] in clause_delimiters or target_sent[i] in sentence_delimiters:
+                right = i + 1
+                break
+
+    context = target_sent[left:right].strip()
+    if len(context) < len(word) + 5:
+        return target_sent[pos:pos + len(word) + window]
+
+    return context
 
 def get_main_keyboard():
     buttons = [
