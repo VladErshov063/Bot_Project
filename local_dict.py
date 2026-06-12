@@ -5,7 +5,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 class ChineseDictionary:
-    """Локальный словарь на основе CC-CEDICT с разрешением перекрёстных ссылок."""
+    """Локальный словарь на основе CC-CEDICT с разрешением перекрёстных ссылок и очисткой перевода."""
 
     def __init__(self, dict_path: str = "hsk_data/cedict_1_0_ts_utf-8_mdbg.txt"):
         self.dict_path = Path(dict_path)
@@ -42,8 +42,9 @@ class ChineseDictionary:
         self.entries = {}
         for word, (pinyin, raw_trans) in raw_entries.items():
             trans = self._resolve_reference(raw_trans, raw_entries)
+            trans = self._clean_translation(trans)
             self.entries[word] = (pinyin, trans)
-        logger.info(f"Разрешены ссылки, итого записей: {len(self.entries)}")
+        logger.info(f"Разрешены ссылки и очищены переводы, итого записей: {len(self.entries)}")
 
     def _resolve_reference(self, translation: str, raw_entries: dict) -> str:
         """Итеративно раскрывает ссылки вида 'see X' (без рекурсии)."""
@@ -73,7 +74,15 @@ class ChineseDictionary:
                 current = current.replace("see ", "→ ")
                 break
 
-        return current[:200]
+        return current[:500]
+
+    def _clean_translation(self, text: str) -> str:
+        """Удаляет из перевода китайские иероглифы и пиньинь, оставляя только английский текст."""
+        pattern = r'[一-龥]+(?:\|[一-龥]+)?[a-zA-Z0-9\sāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ]+'
+        cleaned = re.sub(pattern, '', text)
+        cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+        cleaned = cleaned.strip(' .,;:!?')
+        return cleaned
 
     def _format_pinyin(self, pinyin: str) -> str:
         """Конвертирует пиньинь с цифрами в тоновые символы."""
