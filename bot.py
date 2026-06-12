@@ -50,7 +50,7 @@ def extract_sentence(text: str, word: str) -> str:
 
 def get_main_keyboard():
     buttons = [
-        [KeyboardButton("/learn"), KeyboardButton("/review")],
+        [KeyboardButton("/learn"), KeyboardButton("/review"), KeyboardButton("/level")],
         [KeyboardButton("/add_text"), KeyboardButton("/game")],
         [KeyboardButton("/mydict"), KeyboardButton("/stats")],
         [KeyboardButton("/reset"), KeyboardButton("/help")]
@@ -95,15 +95,37 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def set_level(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        new_level = int(context.args[0])
-        if 1 <= new_level <= 6:
-            set_user_level(update.effective_user.id, new_level)
-            await update.message.reply_text(f"Уровень HSK установлен на {new_level}.")
-        else:
-            await update.message.reply_text("Уровень должен быть от 1 до 6.")
-    except (IndexError, ValueError):
-        await update.message.reply_text("Используйте: /level <число от 1 до 6>")
+    if context.args and len(context.args) > 0:
+        try:
+            new_level = int(context.args[0])
+            if 1 <= new_level <= 6:
+                set_user_level(update.effective_user.id, new_level)
+                await update.message.reply_text(f"✅ Уровень HSK установлен на {new_level}.")
+            else:
+                await update.message.reply_text("❌ Уровень должен быть от 1 до 6.")
+        except ValueError:
+            await update.message.reply_text("❌ Используйте число от 1 до 6.\nПример: `/level 3`", parse_mode="Markdown")
+        return
+
+    keyboard = []
+    for level in range(1, 7):
+        keyboard.append([InlineKeyboardButton(f"HSK {level}", callback_data=f"set_level_{level}")])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(
+        "🎯 *Выберите ваш уровень HSK:*\n\n"
+        "Слова выше выбранного уровня будут считаться новыми.",
+        parse_mode="Markdown",
+        reply_markup=reply_markup
+    )
+
+async def level_choice_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    level = int(query.data.split("_")[-1])
+    user_id = query.from_user.id
+    set_user_level(user_id, level)
+    await query.edit_message_text(f"✅ Ваш уровень HSK установлен на {level}.")
+    await query.message.reply_text("Используйте главное меню для продолжения.", reply_markup=get_main_keyboard())
 
 async def add_text_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Отправьте китайский текст (одним сообщением):", reply_markup=ReplyKeyboardRemove())
@@ -196,9 +218,9 @@ async def learn_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 queue_count = c.fetchone()[0]
                 if queue_count == 0:
                     await query.edit_message_text(
-                        f"✅ Слово «{word}» добавлено в изученные! В очереди больше нет слов. Отлично!",
-                        reply_markup=get_main_keyboard()
+                        f"✅ Слово «{word}» добавлено в изученные! В очереди больше нет слов. Отлично!"
                     )
+                    await query.message.reply_text("Выберите действие:", reply_markup=get_main_keyboard())
                     return
                 else:
                     await query.edit_message_text(
@@ -219,7 +241,7 @@ async def learn_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     next_word = get_next_new_word(user_id)
     if next_word:
-        if not hasattr(context, 'user_data') or not isinstance(context, ContextTypes.DEFAULT_TYPE):
+        if not hasattr(context, 'user_data'):
             logger.error(f"learn_callback: некорректный контекст, тип: {type(context)}")
             return
         context.user_data["current_learn_word"] = next_word["word"]
@@ -885,6 +907,7 @@ def main():
     app.add_handler(CallbackQueryHandler(tones_game_callback, pattern="^tones_ans_"))
     app.add_handler(CallbackQueryHandler(tones_again_callback, pattern="^tones_again$"))
     app.add_handler(CallbackQueryHandler(to_game_menu_callback, pattern="^to_game_menu$"))
+    app.add_handler(CallbackQueryHandler(level_choice_callback, pattern="^set_level_"))
     app.add_handler(CommandHandler("cancel", cancel))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("reset", reset))
