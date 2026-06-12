@@ -1,7 +1,6 @@
 import os
 
 TOKEN = os.environ.get("TOKEN")
-
 HSK_FILES = {
     1: "hsk_data/hsk1_.json",
     2: "hsk_data/hsk2_.json",

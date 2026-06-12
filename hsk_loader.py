@@ -3,6 +3,7 @@ from config import HSK_FILES
 
 def load_hsk_dicts() -> dict[str, tuple[str, str, int]]:
     hsk_dict = {}
+
     for level, path in HSK_FILES.items():
         try:
             with open(path, "r", encoding="utf-8") as f:
@@ -17,4 +18,5 @@ def load_hsk_dicts() -> dict[str, tuple[str, str, int]]:
             print(f"Предупреждение: файл {path} не найден, уровень {level} пропущен")
         except Exception as e:
             print(f"Ошибка при загрузке {path}: {e}")
+
     return hsk_dict

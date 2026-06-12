@@ -45,7 +45,7 @@ class ChineseDictionary:
             'u1': 'ū', 'u2': 'ú', 'u3': 'ǔ', 'u4': 'ù',
             'v1': 'ǖ', 'v2': 'ǘ', 'v3': 'ǚ', 'v4': 'ǜ',
         }
-        
+
         def convert_syllable(syl: str) -> str:
             if not syl:
                 return syl
@@ -72,7 +72,7 @@ class ChineseDictionary:
                 if key in tone_map:
                     return base[:pos] + tone_map[key] + base[pos+1:]
             return base
-        
+
         syllables = pinyin.split()
         converted = [convert_syllable(s) for s in syllables]
         return ' '.join(converted)

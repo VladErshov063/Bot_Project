@@ -57,27 +57,56 @@ def get_main_keyboard():
     ]
     return ReplyKeyboardMarkup(buttons, resize_keyboard=True)
 
-async def show_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    words = get_all_known_words(user_id)
-    if len(words) < 4:
-        await update.effective_chat.send_message(
-            "❌ Недостаточно изученных слов (нужно минимум 4) для игр. Изучите ещё несколько слов через /learn и /review."
-        )
-        return
-    keyboard = []
-    for game_id, game_name in GAMES.items():
-        keyboard.append([InlineKeyboardButton(game_name, callback_data=f"game_choose_{game_id}")])
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.effective_chat.send_message(
-        "🎮 *Выберите игру:*\n\nИгры помогут вам быстрее запомнить слова.",
-        parse_mode="Markdown",
-        reply_markup=reply_markup
-    )
+def generate_tone_variants(pinyin: str, num_variants: int = 3):
+    """Генерирует варианты пиньиня с изменёнными тонами (с fallback)."""
+    tone_chars = {'ā', 'á', 'ǎ', 'à', 'ē', 'é', 'ě', 'è', 'ī', 'í', 'ǐ', 'ì',
+                  'ō', 'ó', 'ǒ', 'ò', 'ū', 'ú', 'ǔ', 'ù', 'ǖ', 'ǘ', 'ǚ', 'ǜ'}
+    if not any(c in tone_chars for c in pinyin):
+        syllables = pinyin.split()
+        if len(syllables) > 1:
+            shuffled = syllables[:]
+            random.shuffle(shuffled)
+            return [' '.join(shuffled)]
+        return []
+    variants = set()
+    for _ in range(num_variants * 5):
+        new = list(pinyin)
+        tone_positions = [i for i, ch in enumerate(new) if ch in tone_chars]
+        if not tone_positions:
+            break
+        idx = random.choice(tone_positions)
+        orig = new[idx]
+        base = orig[0]
+        current_tone = {'ā':1, 'á':2, 'ǎ':3, 'à':4,
+                        'ē':1, 'é':2, 'ě':3, 'è':4,
+                        'ī':1, 'í':2, 'ǐ':3, 'ì':4,
+                        'ō':1, 'ó':2, 'ǒ':3, 'ò':4,
+                        'ū':1, 'ú':2, 'ǔ':3, 'ù':4,
+                        'ǖ':1, 'ǘ':2, 'ǚ':3, 'ǜ':4}.get(orig, 1)
+        new_tone = random.choice([t for t in [1,2,3,4] if t != current_tone])
+        tone_map = {'a': ['ā','á','ǎ','à'],
+                    'e': ['ē','é','ě','è'],
+                    'i': ['ī','í','ǐ','ì'],
+                    'o': ['ō','ó','ǒ','ò'],
+                    'u': ['ū','ú','ǔ','ù'],
+                    'ü': ['ǖ','ǘ','ǚ','ǜ']}
+        if base in tone_map:
+            new[idx] = tone_map[base][new_tone-1]
+            variant = ''.join(new)
+            if variant != pinyin:
+                variants.add(variant)
+        if len(variants) >= num_variants:
+            break
+    if not variants:
+        syllables = pinyin.split()
+        if len(syllables) > 1:
+            random.shuffle(syllables)
+            return [' '.join(syllables)]
+    return list(variants)[:num_variants]
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    level = get_user_level(user_id)
+    level = await get_user_level(user_id)
     await update.message.reply_text(
         f"🇨🇳 *Привет! Я 机器-教师, твой помощник в изучении китайского!*\n\n"
         f"📌 Твой уровень HSK: `{level}`\n"
@@ -99,7 +128,7 @@ async def set_level(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             new_level = int(context.args[0])
             if 1 <= new_level <= 6:
-                set_user_level(update.effective_user.id, new_level)
+                await set_user_level(update.effective_user.id, new_level)
                 await update.message.reply_text(f"✅ Уровень HSK установлен на {new_level}.")
             else:
                 await update.message.reply_text("❌ Уровень должен быть от 1 до 6.")
@@ -123,7 +152,7 @@ async def level_choice_callback(update: Update, context: ContextTypes.DEFAULT_TY
     await query.answer()
     level = int(query.data.split("_")[-1])
     user_id = query.from_user.id
-    set_user_level(user_id, level)
+    await set_user_level(user_id, level)
     await query.edit_message_text(f"✅ Ваш уровень HSK установлен на {level}.")
     await query.message.reply_text("Используйте главное меню для продолжения.", reply_markup=get_main_keyboard())
 
@@ -139,10 +168,10 @@ async def add_text_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return TEXT_INPUT
 
     words = segment_chinese(text)
-    user_level = get_user_level(user_id)
+    user_level = await get_user_level(user_id)
     new_found = 0
     for w in words:
-        if is_word_known(user_id, w):
+        if await is_word_known(user_id, w):
             continue
         context_sent = extract_sentence(text, w)
 
@@ -150,18 +179,18 @@ async def add_text_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if info:
             pinyin, translation, word_level = info
             if word_level > user_level:
-                if add_to_queue(user_id, w, pinyin, translation, word_level, context=context_sent):
+                if await add_to_queue(user_id, w, pinyin, translation, word_level, context=context_sent):
                     new_found += 1
             continue
 
         pinyin, translation = LOCAL_DICT.lookup(w)
         if pinyin and translation:
-            if add_to_queue(user_id, w, pinyin, translation, 0, context=context_sent):
+            if await add_to_queue(user_id, w, pinyin, translation, 0, context=context_sent):
                 new_found += 1
         else:
             logger.debug(f"Слово '{w}' не найдено в словарях, пропущено")
 
-    known_count, queue_count = get_stats(user_id)
+    known_count, queue_count = await get_stats(user_id)
     await update.message.reply_text(
         f"✅ *Обработано!*\n\n"
         f"📝 Новых слов: `{new_found}`\n"
@@ -173,14 +202,18 @@ async def add_text_process(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return ConversationHandler.END
 
+async def cancel_in_add_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Завершает диалог без дополнительных сообщений, если пришла команда /cancel."""
+    await update.message.reply_text("Ввод текста отменён.", reply_markup=get_main_keyboard())
+    return ConversationHandler.END
+
 async def learn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    word_data = get_next_new_word(user_id)
+    word_data = await get_next_new_word(user_id)
     if not word_data:
         await update.message.reply_text("Нет новых слов в очереди. Отправьте текст через /add_text")
         return
 
-    context.user_data["current_learn_word"] = word_data["word"]
     card_text = (
         f"📖 *Новое слово*\n\n"
         f"`{word_data['word']}`\n"
@@ -196,7 +229,6 @@ async def learn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(card_text, parse_mode="Markdown", reply_markup=keyboard)
 
 async def learn_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logger.info(f"learn_callback: тип context = {type(context)}")
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
@@ -204,42 +236,38 @@ async def learn_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data.startswith("learn_know_"):
         word = data.replace("learn_know_", "")
-        import sqlite3
         from db import DB_PATH
-        conn = sqlite3.connect(DB_PATH)
-        try:
-            c = conn.cursor()
-            c.execute("SELECT pinyin, translation, hsk_level, context FROM words_queue WHERE user_id = ? AND word = ?", (user_id, word))
-            row = c.fetchone()
-            if row:
-                pinyin, translation, hsk_level, context_sent = row
-                add_known_word(user_id, word, pinyin, translation, hsk_level, context_sent)
-                c.execute("SELECT COUNT(*) FROM words_queue WHERE user_id = ?", (user_id,))
-                queue_count = c.fetchone()[0]
-                if queue_count == 0:
-                    await query.edit_message_text(
-                        f"✅ Слово «{word}» добавлено в изученные! В очереди больше нет слов. Отлично!"
-                    )
-                    await query.message.reply_text("Выберите действие:", reply_markup=get_main_keyboard())
-                    return
+        import aiosqlite
+        async with aiosqlite.connect(DB_PATH) as conn:
+            async with conn.execute("SELECT pinyin, translation, hsk_level, context FROM words_queue WHERE user_id = ? AND word = ?", (user_id, word)) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    pinyin, translation, hsk_level, context_sent = row
+                    await add_known_word(user_id, word, pinyin, translation, hsk_level, context_sent)
+                    async with conn.execute("SELECT COUNT(*) FROM words_queue WHERE user_id = ?", (user_id,)) as cursor2:
+                        queue_count = (await cursor2.fetchone())[0]
+                    if queue_count == 0:
+                        await query.edit_message_text(
+                            f"✅ Слово «{word}» добавлено в изученные! В очереди больше нет слов. Отлично!"
+                        )
+                        await query.message.reply_text("Выберите действие:", reply_markup=get_main_keyboard())
+                        return
+                    else:
+                        await query.edit_message_text(
+                            f"✅ Слово «{word}» добавлено в изученные! Осталось слов в очереди: {queue_count}"
+                        )
                 else:
-                    await query.edit_message_text(
-                        f"✅ Слово «{word}» добавлено в изученные! Осталось слов в очереди: {queue_count}"
-                    )
-            else:
-                await query.edit_message_text("Ошибка: слово не найдено в очереди.")
-                return
-        finally:
-            conn.close()
+                    await query.edit_message_text("Ошибка: слово не найдено в очереди.")
+                    return
     elif data.startswith("learn_skip_"):
         word = data.replace("learn_skip_", "")
         await query.edit_message_text("Слово пропущено. Оно перемещено в конец очереди.")
-        bump_queue_word(user_id, word)
+        await bump_queue_word(user_id, word)
     else:
         await query.edit_message_text("Неизвестная команда.")
         return
 
-    next_word = get_next_new_word(user_id)
+    next_word = await get_next_new_word(user_id)
     if next_word:
         card_text = (
             f"📖 *Новое слово*\n\n"
@@ -259,7 +287,7 @@ async def learn_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def review(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    review_words = get_words_for_review(user_id)
+    review_words = await get_words_for_review(user_id)
     if not review_words:
         await update.message.reply_text("Сегодня нет слов для повторения. Отдохни!")
         return
@@ -305,10 +333,10 @@ async def review_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     word_data = review_list[idx]
     word = word_data["word"]
     if action == "review_know":
-        update_review(user_id, word, success=True)
+        await update_review(user_id, word, success=True)
         await query.edit_message_text(f"✅ {word} – запомнил. Отлично!")
     else:
-        update_review(user_id, word, success=False)
+        await update_review(user_id, word, success=False)
         await query.edit_message_text(f"❌ {word} – повторим позже.")
 
     context.user_data["review_index"] = idx + 1
@@ -319,8 +347,8 @@ async def review_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    known, queue = get_stats(user_id)
-    level = get_user_level(user_id)
+    known, queue = await get_stats(user_id)
+    level = await get_user_level(user_id)
     await update.message.reply_text(
         f"📊 *Твоя статистика*\n"
         f"Уровень HSK: {level}\n"
@@ -331,7 +359,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def mydict(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    words = get_all_known_words(user_id)
+    words = await get_all_known_words(user_id)
     if not words:
         await update.message.reply_text("📭 У вас пока нет изученных слов. Добавьте слова через /learn.")
         return
@@ -384,14 +412,32 @@ async def reset_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     data = query.data
     if data == "confirm_reset":
-        reset_user_data(user_id)
-        await query.edit_message_text("✅ Все ваши данные сброшены.")
+        await reset_user_data(user_id)
+        await query.edit_message_text("✅ Все ваши данные сброшены (включая уровень HSK на 1).")
         await query.message.reply_text("Нажмите /start или используйте меню.", reply_markup=get_main_keyboard())
     else:
         await query.edit_message_text("❌ Сброс отменён.")
 
 async def game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_game_menu(update, context)
+
+async def show_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    words = await get_all_known_words(user_id)
+    if len(words) < 4:
+        await update.effective_chat.send_message(
+            "❌ Недостаточно изученных слов (нужно минимум 4) для игр. Изучите ещё несколько слов через /learn и /review."
+        )
+        return
+    keyboard = []
+    for game_id, game_name in GAMES.items():
+        keyboard.append([InlineKeyboardButton(game_name, callback_data=f"game_choose_{game_id}")])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.effective_chat.send_message(
+        "🎮 *Выберите игру:*\n\nИгры помогут вам быстрее запомнить слова.",
+        parse_mode="Markdown",
+        reply_markup=reply_markup
+    )
 
 async def game_choose_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -418,9 +464,8 @@ async def start_translate_game(update: Update, context: ContextTypes.DEFAULT_TYP
         user_id = update.effective_user.id
         message = update.message
 
-    words = get_all_known_words(user_id)
+    words = await get_all_known_words(user_id)
     words = [w for w in words if w.get("word") and w.get("translation") and w["translation"].strip()]
-
     if len(words) < 4:
         await message.reply_text("❌ Недостаточно слов с переводом для игры (нужно минимум 4).")
         return
@@ -493,7 +538,7 @@ async def start_scramble_game(update: Update, context: ContextTypes.DEFAULT_TYPE
         user_id = update.effective_user.id
         message = update.message
 
-    all_words = get_all_known_words(user_id)
+    all_words = await get_all_known_words(user_id)
     words = [w for w in all_words if len(w['word']) >= 2]
     if len(words) < 4:
         await message.reply_text("❌ Нужно минимум 4 слова длиной 2+ иероглифа для игры.")
@@ -560,7 +605,7 @@ async def start_pinyin_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
         message = update.message
 
-    all_words = get_all_known_words(user_id)
+    all_words = await get_all_known_words(user_id)
     words_with_pinyin = []
     for w in all_words:
         word = w['word']
@@ -572,9 +617,7 @@ async def start_pinyin_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pinyin, translation = LOCAL_DICT.lookup(word)
             if pinyin:
                 words_with_pinyin.append((word, pinyin, translation))
-
-    words_with_pinyin = [(word, pinyin, trans) for word, pinyin, trans in words_with_pinyin if pinyin]
-
+    words_with_pinyin = [(w, p, t) for w, p, t in words_with_pinyin if p]
     if len(words_with_pinyin) < 4:
         await message.reply_text("❌ Недостаточно слов с пиньинем для игры (нужно минимум 4).")
         return
@@ -634,7 +677,7 @@ async def start_chain_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
         message = update.message
 
-    all_words = get_all_known_words(user_id)
+    all_words = await get_all_known_words(user_id)
     if len(all_words) < 4:
         await message.reply_text("❌ Недостаточно изученных слов для игры (нужно минимум 4).")
         return
@@ -654,7 +697,6 @@ async def start_chain_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "index": index,
         "used_words": set([current_word])
     }
-
     await show_chain_question(update, context, message)
 
 async def show_chain_question(update: Update, context: ContextTypes.DEFAULT_TYPE, message):
@@ -671,7 +713,10 @@ async def show_chain_question(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     candidates = [w for w in index.get(last_char, []) if w['word'] not in used]
     if not candidates:
-        keyboard = [[InlineKeyboardButton("🎮 В меню", callback_data="to_game_menu")]]
+        keyboard = [
+            [InlineKeyboardButton("🔁 Ещё раз", callback_data="chain_again")],
+            [InlineKeyboardButton("🎮 В меню", callback_data="to_game_menu")]
+        ]
         await message.reply_text(
             f"🏁 *Игра окончена!*\n\n"
             f"Последнее слово: `{current_word}` — {current_trans}\n"
@@ -749,7 +794,10 @@ async def chain_game_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
                 break
         if not correct_obj:
             correct_obj = {"word": correct_word, "translation": "?"}
-        keyboard = [[InlineKeyboardButton("🎮 В меню", callback_data="to_game_menu")]]
+        keyboard = [
+            [InlineKeyboardButton("🔁 Ещё раз", callback_data="chain_again")],
+            [InlineKeyboardButton("🎮 В меню", callback_data="to_game_menu")]
+        ]
         await query.edit_message_text(
             f"❌ *Неправильно.*\n\n"
             f"Вы выбрали: `{selected_word}`\n"
@@ -763,47 +811,6 @@ async def chain_game_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def chain_again_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await start_chain_game(update, context)
 
-def generate_tone_variants(pinyin: str, num_variants: int = 3):
-    """Генерирует варианты пиньиня с изменёнными тонами."""
-    tone_chars = {'ā', 'á', 'ǎ', 'à', 'ē', 'é', 'ě', 'è', 'ī', 'í', 'ǐ', 'ì', 'ō', 'ó', 'ǒ', 'ò', 'ū', 'ú', 'ǔ', 'ù', 'ǖ', 'ǘ', 'ǚ', 'ǜ'}
-    if not any(c in tone_chars for c in pinyin):
-        return []
-    variants = set()
-    max_attempts = 100
-    for _ in range(max_attempts):
-        new_pinyin = list(pinyin)
-        tone_positions = [i for i, c in enumerate(new_pinyin) if c in tone_chars]
-        if not tone_positions:
-            break
-        num_changes = random.randint(1, min(2, len(tone_positions)))
-        changed = 0
-        while changed < num_changes:
-            pos = random.choice(tone_positions)
-            base = new_pinyin[pos][0]
-            new_tone = random.choice([1,2,3,4])
-            if base == 'a':
-                new_char = ['ā','á','ǎ','à'][new_tone-1]
-            elif base == 'e':
-                new_char = ['ē','é','ě','è'][new_tone-1]
-            elif base == 'i':
-                new_char = ['ī','í','ǐ','ì'][new_tone-1]
-            elif base == 'o':
-                new_char = ['ō','ó','ǒ','ò'][new_tone-1]
-            elif base == 'u':
-                new_char = ['ū','ú','ǔ','ù'][new_tone-1]
-            elif base == 'ü':
-                new_char = ['ǖ','ǘ','ǚ','ǜ'][new_tone-1]
-            else:
-                continue
-            new_pinyin[pos] = new_char
-            changed += 1
-        variant = ''.join(new_pinyin)
-        if variant != pinyin:
-            variants.add(variant)
-        if len(variants) >= num_variants:
-            break
-    return list(variants)[:num_variants]
-
 async def start_tones_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.callback_query:
         user_id = update.callback_query.from_user.id
@@ -812,7 +819,7 @@ async def start_tones_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
         message = update.message
 
-    all_words = get_all_known_words(user_id)
+    all_words = await get_all_known_words(user_id)
     words_with_pinyin = []
     for w in all_words:
         word = w['word']
@@ -824,9 +831,7 @@ async def start_tones_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pinyin, translation = LOCAL_DICT.lookup(word)
             if pinyin:
                 words_with_pinyin.append((word, pinyin, translation))
-
-    words_with_pinyin = [(word, pinyin, trans) for word, pinyin, trans in words_with_pinyin if pinyin]
-
+    words_with_pinyin = [(w, p, t) for w, p, t in words_with_pinyin if p]
     if len(words_with_pinyin) < 4:
         await message.reply_text("❌ Недостаточно слов с пиньинем для игры (нужно минимум 4).")
         return
@@ -835,8 +840,10 @@ async def start_tones_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     variants = [target_pinyin]
     wrong = generate_tone_variants(target_pinyin, 3)
     variants.extend(wrong)
+    if len(set(variants)) == 1:
+        other = random.choice([p for (w,p,t) in words_with_pinyin if w != target_word])
+        variants.append(other)
     random.shuffle(variants)
-
     context.user_data["tones_game"] = {
         "word": target_word,
         "correct": target_pinyin,
@@ -881,14 +888,31 @@ async def tones_again_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 async def to_game_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_game_menu(update, context)
 
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.error(msg="Exception while handling an update:", exc_info=context.error)
+    if update and update.effective_message:
+        await update.effective_message.reply_text("⚠️ Произошла ошибка. Попробуйте позже.")
+
 def main():
-    init_db()
-    request = HTTPXRequest(connect_timeout=30, read_timeout=30, write_timeout=30)
+    import asyncio
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(init_db())
+    request = HTTPXRequest(
+        connect_timeout=60.0,
+        read_timeout=60.0,
+        write_timeout=60.0,
+        pool_timeout=60.0
+    )
     app = Application.builder().token(TOKEN).request(request).build()
+
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("add_text", add_text_start)],
-        states={TEXT_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_text_process)]},
-        fallbacks=[CommandHandler("cancel", cancel)]
+        states={
+            TEXT_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_text_process)]
+        },
+        fallbacks=[CommandHandler("cancel", cancel_in_add_text)],
+        allow_reentry=True
     )
 
     app.add_handler(CommandHandler("start", start))
@@ -918,6 +942,7 @@ def main():
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("reset", reset))
     app.add_handler(CallbackQueryHandler(reset_callback, pattern="^(confirm_reset|cancel_reset)$"))
+    app.add_error_handler(error_handler)
 
     logger.info("Бот запущен")
     app.run_polling()
