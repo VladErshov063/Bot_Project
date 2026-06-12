@@ -5,7 +5,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 class ChineseDictionary:
-    """Локальный словарь на основе CC-CEDICT с обработкой перекрёстных ссылок."""
+    """Локальный словарь на основе CC-CEDICT с разрешением перекрёстных ссылок."""
 
     def __init__(self, dict_path: str = "hsk_data/cedict_1_0_ts_utf-8_mdbg.txt"):
         self.dict_path = Path(dict_path)
@@ -34,7 +34,7 @@ class ChineseDictionary:
                         raw_entries[simplified] = (pinyin, raw_trans)
                         if simplified != traditional:
                             raw_entries[traditional] = (pinyin, raw_trans)
-            logger.info(f"Загружено {len(raw_entries)} записей из локального словаря")
+            logger.info(f"Загружено {len(raw_entries)} записей из словаря")
         except Exception as e:
             logger.error(f"Ошибка загрузки словаря: {e}")
             return
@@ -43,24 +43,37 @@ class ChineseDictionary:
         for word, (pinyin, raw_trans) in raw_entries.items():
             trans = self._resolve_reference(raw_trans, raw_entries)
             self.entries[word] = (pinyin, trans)
-
         logger.info(f"Разрешены ссылки, итого записей: {len(self.entries)}")
 
     def _resolve_reference(self, translation: str, raw_entries: dict) -> str:
-        """Если перевод является ссылкой 'see X', пытается взять перевод из целевой записи."""
-        match = re.match(r"^see\s+(\S+?)(?:\||\s|$)", translation)
-        if not match:
-            return translation
-        target = match.group(1)
-        target_clean = re.sub(r'[0-9]', '', target)
-        if target_clean in raw_entries:
-            _, target_trans = raw_entries[target_clean]
-            return self._resolve_reference(target_trans, raw_entries)
-        target_clean2 = re.sub(r'[a-zA-Z\s]+$', '', target_clean)
-        if target_clean2 in raw_entries:
-            _, target_trans = raw_entries[target_clean2]
-            return self._resolve_reference(target_trans, raw_entries)
-        return translation.replace("see ", "→ ")[:100]
+        """Итеративно раскрывает ссылки вида 'see X' (без рекурсии)."""
+        visited = set()
+        current = translation
+        while True:
+            if current in visited:
+                break
+            visited.add(current)
+
+            match = re.match(r"^see\s+(\S+?)(?:\||\s|$)", current)
+            if not match:
+                break
+
+            target = match.group(1)
+
+            if '|' in target:
+                target = target.split('|')[1]
+
+            target_clean = re.sub(r'[0-9]', '', target)
+            target_clean = re.sub(r'[a-zA-Z\s]+$', '', target_clean)
+
+            if target_clean in raw_entries:
+                _, current = raw_entries[target_clean]
+                continue
+            else:
+                current = current.replace("see ", "→ ")
+                break
+
+        return current[:200]
 
     def _format_pinyin(self, pinyin: str) -> str:
         """Конвертирует пиньинь с цифрами в тоновые символы."""
