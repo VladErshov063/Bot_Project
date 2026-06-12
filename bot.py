@@ -212,8 +212,8 @@ async def learn_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             c.execute("SELECT pinyin, translation, hsk_level, context FROM words_queue WHERE user_id = ? AND word = ?", (user_id, word))
             row = c.fetchone()
             if row:
-                pinyin, translation, hsk_level, context = row
-                add_known_word(user_id, word, pinyin, translation, hsk_level, context)
+                pinyin, translation, hsk_level, context_sent = row
+                add_known_word(user_id, word, pinyin, translation, hsk_level, context_sent)
                 c.execute("SELECT COUNT(*) FROM words_queue WHERE user_id = ?", (user_id,))
                 queue_count = c.fetchone()[0]
                 if queue_count == 0:
@@ -241,10 +241,6 @@ async def learn_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     next_word = get_next_new_word(user_id)
     if next_word:
-        if not hasattr(context, 'user_data'):
-            logger.error(f"learn_callback: некорректный контекст, тип: {type(context)}")
-            return
-        context.user_data["current_learn_word"] = next_word["word"]
         card_text = (
             f"📖 *Новое слово*\n\n"
             f"`{next_word['word']}`\n"
