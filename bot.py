@@ -58,50 +58,57 @@ def get_main_keyboard():
     return ReplyKeyboardMarkup(buttons, resize_keyboard=True)
 
 def generate_tone_variants(pinyin: str, num_variants: int = 3):
-    """Генерирует варианты пиньиня с изменёнными тонами (с fallback)."""
-    tone_chars = {'ā', 'á', 'ǎ', 'à', 'ē', 'é', 'ě', 'è', 'ī', 'í', 'ǐ', 'ì',
-                  'ō', 'ó', 'ǒ', 'ò', 'ū', 'ú', 'ǔ', 'ù', 'ǖ', 'ǘ', 'ǚ', 'ǜ'}
-    if not any(c in tone_chars for c in pinyin):
-        syllables = pinyin.split()
-        if len(syllables) > 1:
-            shuffled = syllables[:]
-            random.shuffle(shuffled)
-            return [' '.join(shuffled)]
+    """
+    Генерирует варианты пиньиня с изменёнными тонами.
+    """
+    tone_map = {
+        'a': ['ā', 'á', 'ǎ', 'à'],
+        'e': ['ē', 'é', 'ě', 'è'],
+        'i': ['ī', 'í', 'ǐ', 'ì'],
+        'o': ['ō', 'ó', 'ǒ', 'ò'],
+        'u': ['ū', 'ú', 'ǔ', 'ù'],
+        'ü': ['ǖ', 'ǘ', 'ǚ', 'ǜ']
+    }
+    syllables = pinyin.split()
+    if not syllables:
         return []
+
+    current_tones = []
+    for syl in syllables:
+        tone = 0
+        for base, chars in tone_map.items():
+            for idx, ch in enumerate(chars):
+                if ch in syl:
+                    tone = idx + 1
+                    break
+            if tone:
+                break
+        current_tones.append(tone)
+
     variants = set()
-    for _ in range(num_variants * 5):
-        new = list(pinyin)
-        tone_positions = [i for i, ch in enumerate(new) if ch in tone_chars]
-        if not tone_positions:
+    attempts = 0
+    while len(variants) < num_variants and attempts < 50:
+        eligible = [i for i, t in enumerate(current_tones) if t != 0]
+        if not eligible:
             break
-        idx = random.choice(tone_positions)
-        orig = new[idx]
-        base = orig[0]
-        current_tone = {'ā':1, 'á':2, 'ǎ':3, 'à':4,
-                        'ē':1, 'é':2, 'ě':3, 'è':4,
-                        'ī':1, 'í':2, 'ǐ':3, 'ì':4,
-                        'ō':1, 'ó':2, 'ǒ':3, 'ò':4,
-                        'ū':1, 'ú':2, 'ǔ':3, 'ù':4,
-                        'ǖ':1, 'ǘ':2, 'ǚ':3, 'ǜ':4}.get(orig, 1)
+        idx = random.choice(eligible)
+        current_tone = current_tones[idx]
         new_tone = random.choice([t for t in [1,2,3,4] if t != current_tone])
-        tone_map = {'a': ['ā','á','ǎ','à'],
-                    'e': ['ē','é','ě','è'],
-                    'i': ['ī','í','ǐ','ì'],
-                    'o': ['ō','ó','ǒ','ò'],
-                    'u': ['ū','ú','ǔ','ù'],
-                    'ü': ['ǖ','ǘ','ǚ','ǜ']}
-        if base in tone_map:
-            new[idx] = tone_map[base][new_tone-1]
-            variant = ''.join(new)
-            if variant != pinyin:
-                variants.add(variant)
-        if len(variants) >= num_variants:
-            break
-    if not variants:
-        syllables = pinyin.split()
-        if len(syllables) > 1:
-            random.shuffle(syllables)
-            return [' '.join(syllables)]
+        new_syl = syllables[idx]
+        for base, chars in tone_map.items():
+            if base in new_syl or any(ch in new_syl for ch in chars):
+                for old_ch in chars:
+                    if old_ch in new_syl:
+                        new_syl = new_syl.replace(old_ch, chars[new_tone-1])
+                        break
+                break
+        new_pinyin = syllables.copy()
+        new_pinyin[idx] = new_syl
+        variant = ' '.join(new_pinyin)
+        if variant != pinyin:
+            variants.add(variant)
+        attempts += 1
+
     return list(variants)[:num_variants]
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -831,19 +838,37 @@ async def start_tones_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pinyin, translation = LOCAL_DICT.lookup(word)
             if pinyin:
                 words_with_pinyin.append((word, pinyin, translation))
-    words_with_pinyin = [(w, p, t) for w, p, t in words_with_pinyin if p]
-    if len(words_with_pinyin) < 4:
-        await message.reply_text("❌ Недостаточно слов с пиньинем для игры (нужно минимум 4).")
+
+    tone_chars = set('āáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ')
+    words_with_pinyin = [(w, p, t) for w, p, t in words_with_pinyin if p and any(c in tone_chars for c in p)]
+    if len(words_with_pinyin) < 2:
+        await message.reply_text("❌ Недостаточно слов с тоновым пиньинем для игры.")
         return
 
-    target_word, target_pinyin, target_trans = random.choice(words_with_pinyin)
-    variants = [target_pinyin]
-    wrong = generate_tone_variants(target_pinyin, 3)
-    variants.extend(wrong)
-    if len(set(variants)) == 1:
-        other = random.choice([p for (w,p,t) in words_with_pinyin if w != target_word])
-        variants.append(other)
+    target_word = None
+    target_pinyin = None
+    target_trans = None
+    for _ in range(20):
+        cand_word, cand_pinyin, cand_trans = random.choice(words_with_pinyin)
+        if not cand_pinyin:
+            continue
+        variants = generate_tone_variants(cand_pinyin, 2)
+        if len(variants) >= 1:
+            target_word, target_pinyin, target_trans = cand_word, cand_pinyin, cand_trans
+            break
+
+    if target_word is None or target_pinyin is None:
+        await message.reply_text("❌ Не удалось подобрать слово с вариантами тонов. Попробуйте позже.")
+        return
+
+    wrong_variants = generate_tone_variants(target_pinyin, 3)
+    if not wrong_variants:
+        await message.reply_text("❌ Для этого слова нет вариантов тонов. Выберите другое слово.")
+        return
+
+    variants = [target_pinyin] + wrong_variants[:3]
     random.shuffle(variants)
+
     context.user_data["tones_game"] = {
         "word": target_word,
         "correct": target_pinyin,

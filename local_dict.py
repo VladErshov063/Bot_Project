@@ -5,7 +5,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 class ChineseDictionary:
-    """Локальный словарь на основе CC-CEDICT."""
+    """Локальный словарь на основе CC-CEDICT с обработкой перекрёстных ссылок."""
 
     def __init__(self, dict_path: str = "hsk_data/cedict_1_0_ts_utf-8_mdbg.txt"):
         self.dict_path = Path(dict_path)
@@ -16,6 +16,8 @@ class ChineseDictionary:
         if not self.dict_path.exists():
             logger.warning(f"Файл словаря не найден: {self.dict_path}")
             return
+
+        raw_entries = {}
         try:
             with open(self.dict_path, "r", encoding="utf-8") as f:
                 for line in f:
@@ -26,17 +28,42 @@ class ChineseDictionary:
                     if match:
                         simplified = match.group(1)
                         traditional = match.group(2)
-                        pinyin = match.group(3)
-                        translation = match.group(4).split("/")[0]
-                        self.entries[simplified] = (self._format_pinyin(pinyin), translation)
+                        pinyin_raw = match.group(3)
+                        raw_trans = match.group(4).split("/")[0]
+                        pinyin = self._format_pinyin(pinyin_raw)
+                        raw_entries[simplified] = (pinyin, raw_trans)
                         if simplified != traditional:
-                            self.entries[traditional] = (self._format_pinyin(pinyin), translation)
-            logger.info(f"Загружено {len(self.entries)} слов из локального словаря")
+                            raw_entries[traditional] = (pinyin, raw_trans)
+            logger.info(f"Загружено {len(raw_entries)} записей из локального словаря")
         except Exception as e:
             logger.error(f"Ошибка загрузки словаря: {e}")
+            return
+
+        self.entries = {}
+        for word, (pinyin, raw_trans) in raw_entries.items():
+            trans = self._resolve_reference(raw_trans, raw_entries)
+            self.entries[word] = (pinyin, trans)
+
+        logger.info(f"Разрешены ссылки, итого записей: {len(self.entries)}")
+
+    def _resolve_reference(self, translation: str, raw_entries: dict) -> str:
+        """Если перевод является ссылкой 'see X', пытается взять перевод из целевой записи."""
+        match = re.match(r"^see\s+(\S+?)(?:\||\s|$)", translation)
+        if not match:
+            return translation
+        target = match.group(1)
+        target_clean = re.sub(r'[0-9]', '', target)
+        if target_clean in raw_entries:
+            _, target_trans = raw_entries[target_clean]
+            return self._resolve_reference(target_trans, raw_entries)
+        target_clean2 = re.sub(r'[a-zA-Z\s]+$', '', target_clean)
+        if target_clean2 in raw_entries:
+            _, target_trans = raw_entries[target_clean2]
+            return self._resolve_reference(target_trans, raw_entries)
+        return translation.replace("see ", "→ ")[:100]
 
     def _format_pinyin(self, pinyin: str) -> str:
-        """Конвертирует пиньинь с цифрами (например, 'tian1' или 'zuó tian1') в тоновые символы."""
+        """Конвертирует пиньинь с цифрами в тоновые символы."""
         tone_map = {
             'a1': 'ā', 'a2': 'á', 'a3': 'ǎ', 'a4': 'à',
             'e1': 'ē', 'e2': 'é', 'e3': 'ě', 'e4': 'è',
@@ -45,7 +72,6 @@ class ChineseDictionary:
             'u1': 'ū', 'u2': 'ú', 'u3': 'ǔ', 'u4': 'ù',
             'v1': 'ǖ', 'v2': 'ǘ', 'v3': 'ǚ', 'v4': 'ǜ',
         }
-
         def convert_syllable(syl: str) -> str:
             if not syl:
                 return syl
@@ -54,25 +80,13 @@ class ChineseDictionary:
                 return syl
             tone = last_char
             base = syl[:-1]
-            if 'a' in base:
-                pos = base.rfind('a')
-            elif 'e' in base:
-                pos = base.rfind('e')
-            elif 'o' in base:
-                pos = base.rfind('o')
-            elif 'u' in base:
-                pos = base.rfind('u')
-            elif 'i' in base:
-                pos = base.rfind('i')
-            else:
-                pos = -1
-            if pos != -1:
-                vowel = base[pos]
-                key = vowel + tone
-                if key in tone_map:
-                    return base[:pos] + tone_map[key] + base[pos+1:]
+            for vowel in ['a', 'e', 'o', 'u', 'i']:
+                if vowel in base:
+                    pos = base.rfind(vowel)
+                    key = vowel + tone
+                    if key in tone_map:
+                        return base[:pos] + tone_map[key] + base[pos+1:]
             return base
-
         syllables = pinyin.split()
         converted = [convert_syllable(s) for s in syllables]
         return ' '.join(converted)
